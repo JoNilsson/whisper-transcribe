@@ -163,6 +163,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.input.Submitted() {
 			cfg := m.input.GetConfig()
 			m.pendingConfig = cfg
+			m.input.ClearSubmitted()
 			// Check if model exists before running pipeline
 			cmds = append(cmds, CheckModel(cfg.Model))
 		}
