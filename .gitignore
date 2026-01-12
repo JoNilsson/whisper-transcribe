@@ -1,0 +1,97 @@
+# Go build output
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.so.*
+*.dylib
+*.test
+*.out
+
+# Go module files
+go.sum
+
+# Vendor directory
+/vendor/
+
+# Test coverage
+*.cover
+*.coverprofile
+coverage.txt
+coverage.html
+
+# Compiled Go packages
+*.a
+
+# Neovim
+.nvim/
+.nvim.lua
+.nvim.local
+nvim-data/
+.swp
+.swo
+*~
+.netrwhist
+
+# IDE - General
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# OS - Linux
+.cache/
+.local/
+.dbus-keyrings/
+.gvfs-metadata/
+
+# OS - NixOS
+.dirlocal
+.envrc
+.env
+result
+result-*
+
+# OS - macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# OS - Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+.~*
+.#*
+
+# Logs
+*.log
+logs/
+
+# System files
+.gitkeep
+*.pyo
+*.pyc
+__pycache__/
