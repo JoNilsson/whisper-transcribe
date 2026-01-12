@@ -171,19 +171,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ModelDownloadScreen:
 		model, cmd := m.download.Update(msg)
 		m.download = model.(*screens.DownloadModel)
-		cmds = append(cmds, cmd)
-
-		if m.download.Confirmed() {
-			if m.pendingConfig != nil {
-				cmds = append(cmds, DownloadModel(m.pendingConfig.Model, m.program))
-			}
-		}
 
 		if m.download.Cancelled() {
 			m.screen = InputScreen
 			m.pendingConfig = nil
 			m.download.Reset()
 			m.input.ClearSubmitted()
+			// Return with input init to restart cursor blink
+			return m, m.input.Init()
+		}
+
+		cmds = append(cmds, cmd)
+
+		if m.download.Confirmed() {
+			if m.pendingConfig != nil {
+				cmds = append(cmds, DownloadModel(m.pendingConfig.Model, m.program))
+			}
 		}
 
 		if m.download.IsComplete() {
