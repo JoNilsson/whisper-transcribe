@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/cyber/whisper-transcribe/internal/models"
 )
 
 // Segment represents a transcribed segment with timestamps.
@@ -137,6 +139,7 @@ func findWhisperBinary() string {
 func findModelPath(model string) string {
 	basePaths := []string{
 		os.Getenv("WHISPER_MODEL_PATH"),
+		models.GetModelsDir(),
 		filepath.Join(os.Getenv("HOME"), ".whisper", "models"),
 		filepath.Join(os.Getenv("HOME"), ".cache", "whisper"),
 		"/usr/share/whisper/models",
@@ -199,4 +202,26 @@ func CountWords(segments []Segment) int {
 		count += len(words)
 	}
 	return count
+}
+
+// ModelExists checks if a whisper model is available locally.
+func ModelExists(model string) bool {
+	return findModelPath(model) != ""
+}
+
+// ErrModelNotFound is returned when a model is not found locally.
+type ErrModelNotFound struct {
+	Model string
+}
+
+func (e ErrModelNotFound) Error() string {
+	return fmt.Sprintf("model '%s' not found locally", e.Model)
+}
+
+// CheckModel verifies the model exists, returning ErrModelNotFound if not.
+func CheckModel(model string) error {
+	if !ModelExists(model) {
+		return ErrModelNotFound{Model: model}
+	}
+	return nil
 }

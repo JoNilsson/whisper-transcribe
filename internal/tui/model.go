@@ -14,6 +14,7 @@ type Model struct {
 	theme  *styles.Theme
 
 	input    *screens.InputModel
+	download *screens.DownloadModel
 	progress *screens.ProgressModel
 	preview  *screens.PreviewModel
 
@@ -21,6 +22,7 @@ type Model struct {
 	height int
 
 	pipelineActive bool
+	pendingConfig  *config.TranscriptionConfig
 
 	program *tea.Program
 }
@@ -33,6 +35,7 @@ func NewModel(cfg *config.Config) *Model {
 		screen:   InputScreen,
 		theme:    theme,
 		input:    screens.NewInputModel(theme, cfg),
+		download: screens.NewDownloadModel(theme),
 		progress: screens.NewProgressModel(theme),
 		preview:  screens.NewPreviewModel(theme),
 	}
@@ -57,6 +60,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.input.SetSize(msg.Width, msg.Height)
+		m.download.SetSize(msg.Width, msg.Height)
 		m.progress.SetSize(msg.Width, msg.Height)
 		m.preview.SetSize(msg.Width, msg.Height)
 
@@ -65,13 +69,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
-			if !m.pipelineActive && m.screen != ProgressScreen {
+			if !m.pipelineActive && m.screen != ProgressScreen && m.screen != ModelDownloadScreen {
 				return m, tea.Quit
 			}
 		}
 
 	case ScreenMsg:
 		m.screen = Screen(msg)
+
+	case ModelMissingMsg:
+		m.screen = ModelDownloadScreen
+		m.download.SetModel(msg.Model)
+		cmds = append(cmds, m.download.Init())
+
+	case ModelDownloadProgressMsg:
+		model, cmd := m.download.Update(screens.DownloadProgressMsg{
+			Downloaded: msg.Downloaded,
+			Total:      msg.Total,
+		})
+		m.download = model.(*screens.DownloadModel)
+		cmds = append(cmds, cmd)
+
+	case ModelDownloadCompleteMsg:
+		model, cmd := m.download.Update(screens.DownloadCompleteMsg{})
+		m.download = model.(*screens.DownloadModel)
+		cmds = append(cmds, cmd)
+		// Continue with pipeline after short delay
+		if m.pendingConfig != nil {
+			cmds = append(cmds, RunPipeline(m.pendingConfig, m.program))
+		}
+
+	case ModelDownloadErrorMsg:
+		model, cmd := m.download.Update(screens.DownloadErrorMsg{Err: msg.Err})
+		m.download = model.(*screens.DownloadModel)
+		cmds = append(cmds, cmd)
 
 	case PipelineStartedMsg:
 		m.screen = ProgressScreen
@@ -107,6 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PipelineCompletedMsg:
 		m.screen = PreviewScreen
 		m.pipelineActive = false
+		m.pendingConfig = nil
 		m.preview.SetResult(msg.OutputPath, msg.Stats)
 
 	case PipelineErrorMsg:
@@ -130,7 +162,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.input.Submitted() {
 			cfg := m.input.GetConfig()
-			cmds = append(cmds, RunPipeline(cfg, m.program))
+			m.pendingConfig = cfg
+			// Check if model exists before running pipeline
+			cmds = append(cmds, CheckModel(cfg.Model))
+		}
+
+	case ModelDownloadScreen:
+		model, cmd := m.download.Update(msg)
+		m.download = model.(*screens.DownloadModel)
+		cmds = append(cmds, cmd)
+
+		if m.download.Confirmed() {
+			if m.pendingConfig != nil {
+				cmds = append(cmds, DownloadModel(m.pendingConfig.Model, m.program))
+			}
+		}
+
+		if m.download.Cancelled() {
+			m.screen = InputScreen
+			m.pendingConfig = nil
+			m.download.Reset()
+		}
+
+		if m.download.IsComplete() {
+			// Already handled above with ModelDownloadCompleteMsg
 		}
 
 	case ProgressScreen:
@@ -148,11 +203,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.Reset()
 			m.progress.Reset()
 			m.preview.Reset()
+			m.download.Reset()
 		}
 
 		if m.preview.OpenEdit() {
 			cmds = append(cmds, OpenInEditor(m.preview.GetOutputPath()))
 		}
+	}
+
+	// If model check passed (nil message), run pipeline
+	if msg == nil && m.pendingConfig != nil && m.screen == InputScreen {
+		cmds = append(cmds, RunPipeline(m.pendingConfig, m.program))
 	}
 
 	return m, tea.Batch(cmds...)
@@ -163,6 +224,8 @@ func (m Model) View() string {
 	switch m.screen {
 	case InputScreen:
 		return m.input.View()
+	case ModelDownloadScreen:
+		return m.download.View()
 	case ProgressScreen:
 		return m.progress.View()
 	case PreviewScreen:

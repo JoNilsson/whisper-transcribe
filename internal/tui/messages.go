@@ -7,6 +7,7 @@ type Screen int
 
 const (
 	InputScreen Screen = iota
+	ModelDownloadScreen
 	ProgressScreen
 	PreviewScreen
 )
@@ -56,3 +57,37 @@ type EditorClosedMsg struct {
 
 // StartNewMsg triggers return to input screen.
 type StartNewMsg struct{}
+
+// ModelMissingMsg signals that a model needs to be downloaded.
+type ModelMissingMsg struct {
+	Model string
+	Size  string
+}
+
+// ModelDownloadStartMsg signals the start of model download.
+type ModelDownloadStartMsg struct {
+	Model string
+}
+
+// ModelDownloadProgressMsg reports download progress.
+type ModelDownloadProgressMsg struct {
+	Downloaded int64
+	Total      int64
+	Progress   float64
+}
+
+// ModelDownloadCompleteMsg signals download completion.
+type ModelDownloadCompleteMsg struct {
+	Model string
+}
+
+// ModelDownloadErrorMsg signals a download error.
+type ModelDownloadErrorMsg struct {
+	Model string
+	Err   error
+}
+
+// UserConfirmDownloadMsg is sent when user confirms download.
+type UserConfirmDownloadMsg struct {
+	Confirmed bool
+}

@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/cyber/whisper-transcribe/internal/config"
 	"github.com/cyber/whisper-transcribe/internal/downloader"
+	"github.com/cyber/whisper-transcribe/internal/models"
 	"github.com/cyber/whisper-transcribe/internal/pipeline"
+	"github.com/cyber/whisper-transcribe/internal/transcriber"
 	"github.com/cyber/whisper-transcribe/internal/tui"
 )
 
@@ -85,6 +89,17 @@ func runCLI(cfg *config.Config, videoURL string) error {
 		return err
 	}
 
+	// Check if model exists
+	if err := transcriber.CheckModel(cfg.DefaultModel); err != nil {
+		if _, ok := err.(transcriber.ErrModelNotFound); ok {
+			if err := promptAndDownloadModel(cfg.DefaultModel); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
 	transcriptionCfg := &config.TranscriptionConfig{
 		URL:        videoURL,
 		Model:      cfg.DefaultModel,
@@ -117,5 +132,48 @@ func runCLI(cfg *config.Config, videoURL string) error {
 		}
 	}
 
+	return nil
+}
+
+func promptAndDownloadModel(modelName string) error {
+	info, err := models.GetModelInfo(modelName)
+	if err != nil {
+		return fmt.Errorf("unknown model: %s", modelName)
+	}
+
+	fmt.Printf("\nModel '%s' is not installed locally.\n", modelName)
+	fmt.Printf("Size: %s\n", info.Size)
+	fmt.Printf("Download location: %s\n\n", models.GetModelsDir())
+	fmt.Print("Would you like to download it now? [y/N]: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read input: %w", err)
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+	if response != "y" && response != "yes" {
+		return fmt.Errorf("model download cancelled")
+	}
+
+	fmt.Printf("\nDownloading %s...\n", modelName)
+
+	err = models.Download(modelName, func(downloaded, total int64) {
+		if total > 0 {
+			pct := float64(downloaded) / float64(total) * 100
+			fmt.Printf("\r  %s / %s (%.1f%%)",
+				models.FormatBytes(downloaded),
+				models.FormatBytes(total),
+				pct)
+		}
+	})
+
+	if err != nil {
+		fmt.Println()
+		return fmt.Errorf("download failed: %w", err)
+	}
+
+	fmt.Printf("\n\nModel '%s' downloaded successfully!\n\n", modelName)
 	return nil
 }

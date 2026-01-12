@@ -6,7 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cyber/whisper-transcribe/internal/config"
+	"github.com/cyber/whisper-transcribe/internal/models"
 	"github.com/cyber/whisper-transcribe/internal/pipeline"
+	"github.com/cyber/whisper-transcribe/internal/transcriber"
 )
 
 // RunPipeline creates a command that runs the transcription pipeline.
@@ -68,4 +70,45 @@ func OpenInEditor(path string) tea.Cmd {
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return EditorClosedMsg{Err: err}
 	})
+}
+
+// CheckModel verifies if a model exists locally.
+func CheckModel(model string) tea.Cmd {
+	return func() tea.Msg {
+		if err := transcriber.CheckModel(model); err != nil {
+			if _, ok := err.(transcriber.ErrModelNotFound); ok {
+				info, _ := models.GetModelInfo(model)
+				size := "unknown"
+				if info != nil {
+					size = info.Size
+				}
+				return ModelMissingMsg{Model: model, Size: size}
+			}
+			return PipelineErrorMsg{Step: "model_check", Err: err}
+		}
+		return nil
+	}
+}
+
+// DownloadModel downloads a whisper model.
+func DownloadModel(model string, program *tea.Program) tea.Cmd {
+	return func() tea.Msg {
+		err := models.Download(model, func(downloaded, total int64) {
+			progress := 0.0
+			if total > 0 {
+				progress = float64(downloaded) / float64(total)
+			}
+			program.Send(ModelDownloadProgressMsg{
+				Downloaded: downloaded,
+				Total:      total,
+				Progress:   progress,
+			})
+		})
+
+		if err != nil {
+			return ModelDownloadErrorMsg{Model: model, Err: err}
+		}
+
+		return ModelDownloadCompleteMsg{Model: model}
+	}
 }
