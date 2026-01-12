@@ -182,6 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = InputScreen
 			m.pendingConfig = nil
 			m.download.Reset()
+			m.input.ClearSubmitted()
 		}
 
 		if m.download.IsComplete() {

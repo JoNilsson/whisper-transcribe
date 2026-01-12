@@ -279,6 +279,11 @@ func (m *InputModel) Submitted() bool {
 	return m.submitted
 }
 
+// ClearSubmitted clears the submitted flag without full reset.
+func (m *InputModel) ClearSubmitted() {
+	m.submitted = false
+}
+
 // GetConfig returns the transcription configuration.
 func (m *InputModel) GetConfig() *config.TranscriptionConfig {
 	cfg := &config.TranscriptionConfig{
