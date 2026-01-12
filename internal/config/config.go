@@ -17,9 +17,23 @@ type Config struct {
 // TranscriptionConfig holds settings for a single transcription job.
 type TranscriptionConfig struct {
 	URL        string
+	LocalFile  string
 	Model      string
 	Timestamps bool
 	OutputDir  string
+}
+
+// IsLocalFile returns true if transcribing from a local file.
+func (c *TranscriptionConfig) IsLocalFile() bool {
+	return c.LocalFile != ""
+}
+
+// GetSource returns the source identifier (URL or filename).
+func (c *TranscriptionConfig) GetSource() string {
+	if c.IsLocalFile() {
+		return c.LocalFile
+	}
+	return c.URL
 }
 
 // Load reads configuration from file and environment.

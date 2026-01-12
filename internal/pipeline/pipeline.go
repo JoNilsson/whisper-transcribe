@@ -2,6 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/cyber/whisper-transcribe/internal/config"
 	"github.com/cyber/whisper-transcribe/internal/downloader"
@@ -86,30 +89,47 @@ func New(cfg *config.TranscriptionConfig, events chan<- Event) *Pipeline {
 func (p *Pipeline) Run() {
 	defer p.cancel()
 
-	// Step 1: Fetch metadata
-	p.events <- ProgressEvent{Step: "metadata", Progress: 0, Message: "Fetching video info..."}
-	meta, err := downloader.FetchMetadata(p.ctx, p.config.URL)
-	if err != nil {
-		p.events <- ErrorEvent{Step: "metadata", Err: err}
-		return
-	}
-	p.events <- MetadataEvent{
-		Title:    meta.Title,
-		Channel:  meta.Channel,
-		Duration: meta.Duration,
-	}
-	p.events <- ProgressEvent{Step: "metadata", Progress: 1.0, Message: "Done"}
+	var meta *downloader.Metadata
+	var audioPath string
+	var err error
 
-	// Step 2: Download audio
-	p.events <- ProgressEvent{Step: "download", Progress: 0, Message: "Starting download..."}
-	audioPath, err := downloader.Download(p.ctx, p.config.URL, func(progress float64) {
-		p.events <- ProgressEvent{Step: "download", Progress: progress, Message: "Downloading..."}
-	})
-	if err != nil {
-		p.events <- ErrorEvent{Step: "download", Err: err}
-		return
+	if p.config.IsLocalFile() {
+		// Local file: create metadata from filename
+		meta = createLocalMetadata(p.config.LocalFile)
+		audioPath = p.config.LocalFile
+
+		p.events <- MetadataEvent{
+			Title:    meta.Title,
+			Channel:  meta.Channel,
+			Duration: meta.Duration,
+		}
+		p.events <- ProgressEvent{Step: "metadata", Progress: 1.0, Message: "Local file ready"}
+	} else {
+		// Step 1: Fetch metadata
+		p.events <- ProgressEvent{Step: "metadata", Progress: 0, Message: "Fetching video info..."}
+		meta, err = downloader.FetchMetadata(p.ctx, p.config.URL)
+		if err != nil {
+			p.events <- ErrorEvent{Step: "metadata", Err: err}
+			return
+		}
+		p.events <- MetadataEvent{
+			Title:    meta.Title,
+			Channel:  meta.Channel,
+			Duration: meta.Duration,
+		}
+		p.events <- ProgressEvent{Step: "metadata", Progress: 1.0, Message: "Done"}
+
+		// Step 2: Download audio
+		p.events <- ProgressEvent{Step: "download", Progress: 0, Message: "Starting download..."}
+		audioPath, err = downloader.Download(p.ctx, p.config.URL, func(progress float64) {
+			p.events <- ProgressEvent{Step: "download", Progress: progress, Message: "Downloading..."}
+		})
+		if err != nil {
+			p.events <- ErrorEvent{Step: "download", Err: err}
+			return
+		}
+		p.events <- ProgressEvent{Step: "download", Progress: 1.0, Message: "Done"}
 	}
-	p.events <- ProgressEvent{Step: "download", Progress: 1.0, Message: "Done"}
 
 	// Step 3: Transcribe
 	p.events <- ProgressEvent{Step: "transcribe", Progress: 0, Message: "Starting transcription..."}
@@ -162,4 +182,23 @@ func (p *Pipeline) Run() {
 // Cancel stops the pipeline.
 func (p *Pipeline) Cancel() {
 	p.cancel()
+}
+
+// createLocalMetadata generates metadata from a local file path.
+func createLocalMetadata(filePath string) *downloader.Metadata {
+	filename := filepath.Base(filePath)
+	ext := filepath.Ext(filename)
+	title := filename[:len(filename)-len(ext)]
+
+	// Clean up the title (replace underscores/hyphens with spaces)
+	title = strings.ReplaceAll(title, "_", " ")
+	title = strings.ReplaceAll(title, "-", " ")
+
+	return &downloader.Metadata{
+		Title:      title,
+		Channel:    "Local File",
+		ChannelURL: "",
+		Duration:   "Unknown",
+		UploadDate: time.Now().Format("20060102"),
+	}
 }

@@ -20,6 +20,7 @@ var (
 	cfgFile    string
 	noTUI      bool
 	url        string
+	localFile  string
 	model      string
 	timestamps bool
 	outputDir  string
@@ -38,6 +39,7 @@ using local OpenAI Whisper (whisper.cpp) transcription.`,
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
 	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "run in CLI mode without TUI")
 	rootCmd.Flags().StringVarP(&url, "url", "u", "", "YouTube URL to transcribe")
+	rootCmd.Flags().StringVarP(&localFile, "file", "f", "", "local audio file to transcribe")
 	rootCmd.Flags().StringVarP(&model, "model", "m", "", "Whisper model (tiny, base, small, medium, large)")
 	rootCmd.Flags().BoolVarP(&timestamps, "timestamps", "t", false, "include timestamps in output")
 	rootCmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory")
@@ -64,8 +66,8 @@ func run(cmd *cobra.Command, args []string) error {
 		cfg.Timestamps = true
 	}
 
-	if noTUI || url != "" {
-		return runCLI(cfg, url)
+	if noTUI || url != "" || localFile != "" {
+		return runCLI(cfg, url, localFile)
 	}
 
 	return runTUI(cfg)
@@ -80,13 +82,31 @@ func runTUI(cfg *config.Config) error {
 	return err
 }
 
-func runCLI(cfg *config.Config, videoURL string) error {
-	if videoURL == "" {
-		return fmt.Errorf("URL is required in CLI mode (use --url)")
+func runCLI(cfg *config.Config, videoURL, filePath string) error {
+	if videoURL == "" && filePath == "" {
+		return fmt.Errorf("URL or file is required in CLI mode (use --url or --file)")
 	}
 
-	if err := downloader.ValidateURL(videoURL); err != nil {
-		return err
+	if videoURL != "" && filePath != "" {
+		return fmt.Errorf("cannot specify both --url and --file")
+	}
+
+	transcriptionCfg := &config.TranscriptionConfig{
+		Model:      cfg.DefaultModel,
+		Timestamps: cfg.Timestamps,
+		OutputDir:  cfg.OutputDir,
+	}
+
+	if videoURL != "" {
+		if err := downloader.ValidateURL(videoURL); err != nil {
+			return err
+		}
+		transcriptionCfg.URL = videoURL
+	} else {
+		if err := validateLocalFile(filePath); err != nil {
+			return err
+		}
+		transcriptionCfg.LocalFile = filePath
 	}
 
 	// Check if model exists
@@ -98,13 +118,6 @@ func runCLI(cfg *config.Config, videoURL string) error {
 		} else {
 			return err
 		}
-	}
-
-	transcriptionCfg := &config.TranscriptionConfig{
-		URL:        videoURL,
-		Model:      cfg.DefaultModel,
-		Timestamps: cfg.Timestamps,
-		OutputDir:  cfg.OutputDir,
 	}
 
 	events := make(chan pipeline.Event, 100)
@@ -175,5 +188,25 @@ func promptAndDownloadModel(modelName string) error {
 	}
 
 	fmt.Printf("\n\nModel '%s' downloaded successfully!\n\n", modelName)
+	return nil
+}
+
+func validateLocalFile(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("file path is required")
+	}
+
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("file not found: %s", path)
+	}
+	if err != nil {
+		return fmt.Errorf("cannot access file: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("path is a directory, not a file")
+	}
+
 	return nil
 }

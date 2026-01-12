@@ -27,7 +27,7 @@ model: "whisper-{{.Model}}"
 
 # {{.Title}}
 
-> Transcribed from [{{.Channel}}]({{.ChannelURL}}) on {{.TranscribedDate}}
+{{if .ChannelURL}}> Transcribed from [{{.Channel}}]({{.ChannelURL}}) on {{.TranscribedDate}}{{else}}> Transcribed from {{.Channel}} on {{.TranscribedDate}}{{end}}
 
 ## Transcription
 
@@ -89,7 +89,7 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 
 	data := MarkdownData{
 		Title:           sanitizeTitle(meta.Title),
-		Source:          cfg.URL,
+		Source:          cfg.GetSource(),
 		Channel:         meta.Channel,
 		ChannelURL:      meta.ChannelURL,
 		UploadDate:      uploadDate,
