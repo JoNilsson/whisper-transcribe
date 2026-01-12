@@ -9,11 +9,14 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/cyber/whisper-transcribe/internal/config"
 	"github.com/cyber/whisper-transcribe/internal/downloader"
 	"github.com/cyber/whisper-transcribe/internal/transcriber"
 )
+
+const maxLineLength = 80
 
 const markdownTemplate = `---
 title: "{{.Title}}"
@@ -27,7 +30,7 @@ model: "whisper-{{.Model}}"
 
 # {{.Title}}
 
-{{if .ChannelURL}}> Transcribed from [{{.Channel}}]({{.ChannelURL}}) on {{.TranscribedDate}}{{else}}> Transcribed from {{.Channel}} on {{.TranscribedDate}}{{end}}
+{{.Attribution}}
 
 ## Transcription
 
@@ -44,6 +47,7 @@ type MarkdownData struct {
 	TranscribedDate string
 	Duration        string
 	Model           string
+	Attribution     string
 	Content         string
 }
 
@@ -53,7 +57,13 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 
 	if cfg.Timestamps {
 		for _, seg := range segments {
-			content.WriteString(fmt.Sprintf("**%s** %s\n\n", seg.Timestamp, seg.Text))
+			// Format: **[00:00]** Text wrapped to 80 chars
+			timestamp := fmt.Sprintf("**[%s]**", seg.Timestamp)
+			text := strings.TrimSpace(seg.Text)
+			// Wrap text accounting for timestamp prefix on first line
+			wrapped := wrapTextWithPrefix(timestamp+" ", text, maxLineLength)
+			content.WriteString(wrapped)
+			content.WriteString("\n\n")
 		}
 	} else {
 		var paragraph strings.Builder
@@ -67,7 +77,8 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 				(i+1)%5 == 0 {
 				text := strings.TrimSpace(paragraph.String())
 				if text != "" {
-					content.WriteString(text)
+					wrapped := wrapText(text, maxLineLength)
+					content.WriteString(wrapped)
 					content.WriteString("\n\n")
 				}
 				paragraph.Reset()
@@ -76,7 +87,8 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 		if paragraph.Len() > 0 {
 			text := strings.TrimSpace(paragraph.String())
 			if text != "" {
-				content.WriteString(text)
+				wrapped := wrapText(text, maxLineLength)
+				content.WriteString(wrapped)
 				content.WriteString("\n")
 			}
 		}
@@ -87,15 +99,34 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 		uploadDate = fmt.Sprintf("%s-%s-%s", uploadDate[:4], uploadDate[4:6], uploadDate[6:8])
 	}
 
+	transcribedDate := time.Now().Format("2006-01-02")
+
+	// Build attribution line, wrapped if needed
+	var attribution string
+	if meta.ChannelURL != "" {
+		attribution = fmt.Sprintf(
+			"Transcribed from [%s](%s) on %s",
+			meta.Channel, meta.ChannelURL, transcribedDate,
+		)
+	} else {
+		attribution = fmt.Sprintf(
+			"Transcribed from %s on %s",
+			meta.Channel, transcribedDate,
+		)
+	}
+	// Wrap attribution as blockquote (accounting for "> " prefix)
+	attribution = wrapBlockquote(attribution, maxLineLength)
+
 	data := MarkdownData{
 		Title:           sanitizeTitle(meta.Title),
 		Source:          cfg.GetSource(),
 		Channel:         meta.Channel,
 		ChannelURL:      meta.ChannelURL,
 		UploadDate:      uploadDate,
-		TranscribedDate: time.Now().Format("2006-01-02"),
+		TranscribedDate: transcribedDate,
 		Duration:        meta.Duration,
 		Model:           cfg.Model,
+		Attribution:     attribution,
 		Content:         strings.TrimSpace(content.String()),
 	}
 
@@ -163,4 +194,113 @@ func FixCommonIssues(content string) string {
 	content = strings.TrimRight(content, "\n") + "\n"
 
 	return content
+}
+
+// wrapText wraps text to the specified line length, breaking at word boundaries.
+func wrapText(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+
+	var result strings.Builder
+	words := strings.Fields(text)
+	lineLen := 0
+
+	for i, word := range words {
+		wordLen := len(word)
+
+		if i == 0 {
+			result.WriteString(word)
+			lineLen = wordLen
+			continue
+		}
+
+		if lineLen+1+wordLen > maxLen {
+			result.WriteString("\n")
+			result.WriteString(word)
+			lineLen = wordLen
+		} else {
+			result.WriteString(" ")
+			result.WriteString(word)
+			lineLen += 1 + wordLen
+		}
+	}
+
+	return result.String()
+}
+
+// wrapTextWithPrefix wraps text with a prefix on the first line.
+func wrapTextWithPrefix(prefix, text string, maxLen int) string {
+	if len(prefix)+len(text) <= maxLen {
+		return prefix + text
+	}
+
+	var result strings.Builder
+	words := strings.Fields(text)
+	result.WriteString(prefix)
+	lineLen := len(prefix)
+
+	for i, word := range words {
+		wordLen := len(word)
+
+		if i == 0 {
+			result.WriteString(word)
+			lineLen += wordLen
+			continue
+		}
+
+		if lineLen+1+wordLen > maxLen {
+			result.WriteString("\n")
+			result.WriteString(word)
+			lineLen = wordLen
+		} else {
+			result.WriteString(" ")
+			result.WriteString(word)
+			lineLen += 1 + wordLen
+		}
+	}
+
+	return result.String()
+}
+
+// wrapBlockquote wraps text as a markdown blockquote.
+func wrapBlockquote(text string, maxLen int) string {
+	// Account for "> " prefix (2 chars)
+	effectiveLen := maxLen - 2
+
+	if len(text) <= effectiveLen {
+		return "> " + text
+	}
+
+	var result strings.Builder
+	words := strings.Fields(text)
+	result.WriteString("> ")
+	lineLen := 0
+
+	for i, word := range words {
+		wordLen := len(word)
+
+		if i == 0 {
+			result.WriteString(word)
+			lineLen = wordLen
+			continue
+		}
+
+		if lineLen+1+wordLen > effectiveLen {
+			result.WriteString("\n> ")
+			result.WriteString(word)
+			lineLen = wordLen
+		} else {
+			result.WriteString(" ")
+			result.WriteString(word)
+			lineLen += 1 + wordLen
+		}
+	}
+
+	return result.String()
+}
+
+// isWordBoundary checks if a rune is a word boundary character.
+func isWordBoundary(r rune) bool {
+	return unicode.IsSpace(r) || unicode.IsPunct(r)
 }
