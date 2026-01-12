@@ -15,7 +15,7 @@
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # Go development
-            go_1_22
+            go
             gopls
             gotools
             golangci-lint
@@ -23,10 +23,10 @@
             # External dependencies
             yt-dlp
             ffmpeg
-            openai-whisper-cpp
+            whisper-cpp
 
             # Markdown linting
-            nodePackages.markdownlint-cli
+            markdownlint-cli
           ];
 
           shellHook = ''
@@ -55,7 +55,7 @@
               --prefix PATH : ${pkgs.lib.makeBinPath [
                 pkgs.yt-dlp
                 pkgs.ffmpeg
-                pkgs.openai-whisper-cpp
+                pkgs.whisper-cpp
               ]}
           '';
 
