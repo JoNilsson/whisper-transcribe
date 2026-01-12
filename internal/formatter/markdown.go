@@ -182,10 +182,31 @@ func slugify(s string) string {
 // FixCommonIssues applies automatic fixes for common lint violations.
 func FixCommonIssues(content string) string {
 	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " \t")
+	var fixedLines []string
+
+	inFrontmatter := false
+	for _, line := range lines {
+		line = strings.TrimRight(line, " \t")
+
+		// Track frontmatter (don't wrap YAML)
+		if line == "---" {
+			inFrontmatter = !inFrontmatter
+			fixedLines = append(fixedLines, line)
+			continue
+		}
+
+		// Don't wrap frontmatter or short lines
+		if inFrontmatter || len(line) <= maxLineLength {
+			fixedLines = append(fixedLines, line)
+			continue
+		}
+
+		// Force wrap long lines
+		wrapped := forceWrapLine(line, maxLineLength)
+		fixedLines = append(fixedLines, wrapped...)
 	}
-	content = strings.Join(lines, "\n")
+
+	content = strings.Join(fixedLines, "\n")
 
 	for strings.Contains(content, "\n\n\n") {
 		content = strings.ReplaceAll(content, "\n\n\n", "\n\n")
@@ -194,6 +215,84 @@ func FixCommonIssues(content string) string {
 	content = strings.TrimRight(content, "\n") + "\n"
 
 	return content
+}
+
+// forceWrapLine wraps a single line that exceeds maxLen.
+func forceWrapLine(line string, maxLen int) []string {
+	// Check for blockquote prefix
+	prefix := ""
+	text := line
+	if strings.HasPrefix(line, "> ") {
+		prefix = "> "
+		text = line[2:]
+		maxLen -= 2
+	}
+
+	// Check for heading (don't wrap headings, just truncate if needed)
+	if strings.HasPrefix(line, "#") {
+		return []string{line}
+	}
+
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{line}
+	}
+
+	var result []string
+	var currentLine strings.Builder
+	currentLine.WriteString(prefix)
+	lineLen := 0
+
+	for i, word := range words {
+		wordLen := len(word)
+
+		// Handle words longer than maxLen by breaking them
+		if wordLen > maxLen {
+			if lineLen > 0 {
+				result = append(result, currentLine.String())
+				currentLine.Reset()
+				currentLine.WriteString(prefix)
+				lineLen = 0
+			}
+			// Break the long word
+			for len(word) > maxLen {
+				currentLine.WriteString(word[:maxLen])
+				result = append(result, currentLine.String())
+				currentLine.Reset()
+				currentLine.WriteString(prefix)
+				word = word[maxLen:]
+			}
+			if len(word) > 0 {
+				currentLine.WriteString(word)
+				lineLen = len(word)
+			}
+			continue
+		}
+
+		if i == 0 {
+			currentLine.WriteString(word)
+			lineLen = wordLen
+			continue
+		}
+
+		if lineLen+1+wordLen > maxLen {
+			result = append(result, currentLine.String())
+			currentLine.Reset()
+			currentLine.WriteString(prefix)
+			currentLine.WriteString(word)
+			lineLen = wordLen
+		} else {
+			currentLine.WriteString(" ")
+			currentLine.WriteString(word)
+			lineLen += 1 + wordLen
+		}
+	}
+
+	if currentLine.Len() > len(prefix) {
+		result = append(result, currentLine.String())
+	}
+
+	return result
 }
 
 // wrapText wraps text to the specified line length, breaking at word boundaries.
