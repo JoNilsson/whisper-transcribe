@@ -31,7 +31,7 @@ provided automatically via the Nix flake:
 ### Using Nix (Recommended)
 
 ```bash
-git clone https://github.com/cyber/whisper-transcribe.git
+git clone https://github.com/JoNilsson/whisper-transcribe.git
 cd whisper-transcribe
 nix develop
 make build
@@ -211,4 +211,4 @@ make clean
 
 ## License
 
-MIT
+[WTFPL](LICENSE) - Do What The Fuck You Want To Public License
