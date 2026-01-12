@@ -2,13 +2,38 @@ package formatter
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
+// markdownlintConfig is the embedded configuration for markdownlint.
+const markdownlintConfig = `{
+  "default": true,
+  "MD013": {
+    "line_length": 80,
+    "code_blocks": false,
+    "tables": false
+  },
+  "MD025": {
+    "front_matter_title": ""
+  },
+  "MD041": false
+}`
+
 // LintMarkdown validates the markdown file against markdownlint rules.
 func LintMarkdown(path string) error {
-	cmd := exec.Command("markdownlint", "--strict", path)
+	// Create a temporary config file
+	tmpDir := os.TempDir()
+	configPath := filepath.Join(tmpDir, "whisper-markdownlint.json")
+
+	if err := os.WriteFile(configPath, []byte(markdownlintConfig), 0644); err != nil {
+		return fmt.Errorf("create lint config: %w", err)
+	}
+	defer os.Remove(configPath)
+
+	cmd := exec.Command("markdownlint", "--config", configPath, path)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -24,7 +49,16 @@ func LintMarkdown(path string) error {
 
 // LintMarkdownSoft validates but returns warnings instead of errors.
 func LintMarkdownSoft(path string) ([]string, error) {
-	cmd := exec.Command("markdownlint", path)
+	// Create a temporary config file
+	tmpDir := os.TempDir()
+	configPath := filepath.Join(tmpDir, "whisper-markdownlint.json")
+
+	if err := os.WriteFile(configPath, []byte(markdownlintConfig), 0644); err != nil {
+		return nil, fmt.Errorf("create lint config: %w", err)
+	}
+	defer os.Remove(configPath)
+
+	cmd := exec.Command("markdownlint", "--config", configPath, path)
 	output, _ := cmd.CombinedOutput()
 
 	violations := strings.TrimSpace(string(output))
