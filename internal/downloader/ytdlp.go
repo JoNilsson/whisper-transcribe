@@ -13,6 +13,13 @@ import (
 	"strings"
 )
 
+// Chapter represents a video chapter from YouTube.
+type Chapter struct {
+	StartTime float64
+	EndTime   float64
+	Title     string
+}
+
 // Metadata holds video information from YouTube.
 type Metadata struct {
 	Title       string
@@ -23,6 +30,7 @@ type Metadata struct {
 	UploadDate  string
 	Description string
 	VideoID     string
+	Chapters    []Chapter
 }
 
 // ProgressFunc is called with download progress (0.0 to 1.0).
@@ -49,10 +57,24 @@ func FetchMetadata(ctx context.Context, url string) (*Metadata, error) {
 		UploadDate  string `json:"upload_date"`
 		Description string `json:"description"`
 		ID          string `json:"id"`
+		Chapters    []struct {
+			StartTime float64 `json:"start_time"`
+			EndTime   float64 `json:"end_time"`
+			Title     string  `json:"title"`
+		} `json:"chapters"`
 	}
 
 	if err := json.Unmarshal(output, &data); err != nil {
 		return nil, fmt.Errorf("parse metadata: %w", err)
+	}
+
+	var chapters []Chapter
+	for _, ch := range data.Chapters {
+		chapters = append(chapters, Chapter{
+			StartTime: ch.StartTime,
+			EndTime:   ch.EndTime,
+			Title:     ch.Title,
+		})
 	}
 
 	return &Metadata{
@@ -64,6 +86,7 @@ func FetchMetadata(ctx context.Context, url string) (*Metadata, error) {
 		UploadDate:  data.UploadDate,
 		Description: data.Description,
 		VideoID:     data.ID,
+		Chapters:    chapters,
 	}, nil
 }
 
