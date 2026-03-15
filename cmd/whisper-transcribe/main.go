@@ -23,6 +23,7 @@ var (
 	localFile  string
 	model      string
 	timestamps bool
+	chapters   bool
 	outputDir  string
 )
 
@@ -42,6 +43,7 @@ using local OpenAI Whisper (whisper.cpp) transcription.`,
 	rootCmd.Flags().StringVarP(&localFile, "file", "f", "", "local audio file to transcribe")
 	rootCmd.Flags().StringVarP(&model, "model", "m", "", "Whisper model (tiny, base, small, medium, large)")
 	rootCmd.Flags().BoolVarP(&timestamps, "timestamps", "t", false, "include timestamps in output")
+	rootCmd.Flags().BoolVarP(&chapters, "chapters", "c", false, "include chapter markers in output")
 	rootCmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory")
 
 	if err := rootCmd.Execute(); err != nil {
@@ -64,6 +66,9 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	if timestamps {
 		cfg.Timestamps = true
+	}
+	if chapters {
+		cfg.Chapters = true
 	}
 
 	if noTUI || url != "" || localFile != "" {
@@ -94,6 +99,7 @@ func runCLI(cfg *config.Config, videoURL, filePath string) error {
 	transcriptionCfg := &config.TranscriptionConfig{
 		Model:      cfg.DefaultModel,
 		Timestamps: cfg.Timestamps,
+		Chapters:   cfg.Chapters,
 		OutputDir:  cfg.OutputDir,
 	}
 
@@ -139,6 +145,12 @@ func runCLI(cfg *config.Config, videoURL, filePath string) error {
 		case pipeline.CompletedEvent:
 			fmt.Printf("\nTranscription complete!\n")
 			fmt.Printf("Output: %s\n", e.OutputPath)
+			if e.Stats.RawPath != "" {
+				fmt.Printf("Raw text: %s\n", e.Stats.RawPath)
+			}
+			if e.Stats.AudioPath != "" {
+				fmt.Printf("Audio: %s\n", e.Stats.AudioPath)
+			}
 			fmt.Printf("Words: %d\n", e.Stats.WordCount)
 		case pipeline.ErrorEvent:
 			return fmt.Errorf("%s: %w", e.Step, e.Err)

@@ -150,9 +150,15 @@ func (m *PreviewModel) View() string {
 	b.WriteString(preview)
 	b.WriteString("\n\n")
 
-	stats := fmt.Sprintf(
-		"Saved to: %s\nDuration: %s  •  Words: %d  •  Model: %s",
-		m.outputPath,
+	statsStr := fmt.Sprintf("Saved to: %s", m.outputPath)
+	if m.stats.RawPath != "" {
+		statsStr += fmt.Sprintf("\nRaw text: %s", m.stats.RawPath)
+	}
+	if m.stats.AudioPath != "" {
+		statsStr += fmt.Sprintf("\nAudio: %s", m.stats.AudioPath)
+	}
+	stats := fmt.Sprintf("%s\nDuration: %s  •  Words: %d  •  Model: %s",
+		statsStr,
 		m.stats.Duration,
 		m.stats.WordCount,
 		m.stats.Model,
