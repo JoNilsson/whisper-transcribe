@@ -114,7 +114,7 @@ func TestGenerateMarkdownLintCompliant(t *testing.T) {
 		OutputDir:  tmpDir,
 	}
 
-	outputPath, err := GenerateMarkdown(meta, segments, cfg)
+	outputPath, err := GenerateMarkdown(meta, segments, cfg, nil)
 	if err != nil {
 		t.Fatalf("GenerateMarkdown failed: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestGenerateMarkdownWithTimestamps(t *testing.T) {
 		OutputDir:  tmpDir,
 	}
 
-	outputPath, err := GenerateMarkdown(meta, segments, cfg)
+	outputPath, err := GenerateMarkdown(meta, segments, cfg, nil)
 	if err != nil {
 		t.Fatalf("GenerateMarkdown failed: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestGenerateMarkdownLongContent(t *testing.T) {
 		OutputDir:  tmpDir,
 	}
 
-	outputPath, err := GenerateMarkdown(meta, segments, cfg)
+	outputPath, err := GenerateMarkdown(meta, segments, cfg, nil)
 	if err != nil {
 		t.Fatalf("GenerateMarkdown failed: %v", err)
 	}
