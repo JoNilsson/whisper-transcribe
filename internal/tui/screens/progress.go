@@ -227,7 +227,9 @@ func (m *ProgressModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
 	m.viewport.Width = max(40, w-10)
-	m.viewport.Height = 8
+	// Chrome: title(2) + steps(5) + max progress bars(2) + spacing(3) + preview label(1) + box padding(4) + margin(1)
+	chromeHeight := 18
+	m.viewport.Height = max(4, h-chromeHeight)
 	m.progress = progress.New(
 		progress.WithDefaultGradient(),
 		progress.WithWidth(max(30, w-20)),
