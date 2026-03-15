@@ -12,6 +12,7 @@ type Config struct {
 	DefaultModel string `mapstructure:"default_model"`
 	OutputDir    string `mapstructure:"output_dir"`
 	Timestamps   bool   `mapstructure:"timestamps"`
+	Chapters     bool   `mapstructure:"chapters"`
 }
 
 // TranscriptionConfig holds settings for a single transcription job.
@@ -20,6 +21,7 @@ type TranscriptionConfig struct {
 	LocalFile  string
 	Model      string
 	Timestamps bool
+	Chapters   bool
 	OutputDir  string
 }
 

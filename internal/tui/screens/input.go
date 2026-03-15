@@ -34,6 +34,7 @@ type InputModel struct {
 	localFile  string
 	model      string
 	timestamps bool
+	chapters   bool
 	outputDir  string
 
 	focusIndex int
@@ -64,6 +65,7 @@ func NewInputModel(theme *styles.Theme, cfg *config.Config) *InputModel {
 		model:      cfg.DefaultModel,
 		outputDir:  cfg.OutputDir,
 		timestamps: cfg.Timestamps,
+		chapters:   cfg.Chapters,
 		models:     config.ModelOptions(),
 		focusIndex: 0,
 	}
@@ -82,10 +84,10 @@ func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab", "down":
-			m.focusIndex = (m.focusIndex + 1) % 5
+			m.focusIndex = (m.focusIndex + 1) % 6
 			m.updateFocus()
 		case "shift+tab", "up":
-			m.focusIndex = (m.focusIndex - 1 + 5) % 5
+			m.focusIndex = (m.focusIndex - 1 + 6) % 6
 			m.updateFocus()
 		case "left":
 			if m.focusIndex == 0 {
@@ -121,9 +123,11 @@ func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			} else if m.focusIndex == 3 {
 				m.timestamps = !m.timestamps
+			} else if m.focusIndex == 4 {
+				m.chapters = !m.chapters
 			}
 		case "enter":
-			if m.focusIndex == 4 {
+			if m.focusIndex == 5 {
 				if m.sourceType == SourceURL {
 					m.url = m.urlInput.Value()
 					if err := downloader.ValidateURL(m.url); err != nil {
@@ -256,11 +260,26 @@ func (m *InputModel) View() string {
 	}
 	b.WriteString("\n\n")
 
+	chLabel := "Include Chapters"
+	if m.focusIndex == 4 {
+		chLabel = m.theme.Primary.Render("▶ " + chLabel)
+	} else {
+		chLabel = m.theme.Dim.Render("  " + chLabel)
+	}
+	b.WriteString(chLabel)
+	b.WriteString("  ")
+	if m.chapters {
+		b.WriteString(m.theme.Success.Render("☑ Yes"))
+	} else {
+		b.WriteString(m.theme.Dim.Render("☐ No"))
+	}
+	b.WriteString("\n\n")
+
 	b.WriteString(m.theme.Dim.Render(fmt.Sprintf("  Output: %s", m.outputDir)))
 	b.WriteString("\n\n")
 
 	startBtn := "[ Start Transcription ]"
-	if m.focusIndex == 4 {
+	if m.focusIndex == 5 {
 		startBtn = m.theme.ButtonActive.Render(startBtn)
 	} else {
 		startBtn = m.theme.Button.Render(startBtn)
@@ -289,6 +308,7 @@ func (m *InputModel) GetConfig() *config.TranscriptionConfig {
 	cfg := &config.TranscriptionConfig{
 		Model:      m.model,
 		Timestamps: m.timestamps,
+		Chapters:   m.chapters,
 		OutputDir:  m.outputDir,
 	}
 	if m.sourceType == SourceURL {
