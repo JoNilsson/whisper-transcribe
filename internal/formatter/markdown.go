@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -15,6 +16,9 @@ import (
 	"github.com/cyber/whisper-transcribe/internal/downloader"
 	"github.com/cyber/whisper-transcribe/internal/transcriber"
 )
+
+// FormatProgressFunc reports formatting progress (0.0 to 1.0).
+type FormatProgressFunc func(progress float64)
 
 const maxLineLength = 80
 
@@ -52,11 +56,25 @@ type MarkdownData struct {
 }
 
 // GenerateMarkdown creates a Markdown file from transcription segments.
-func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment, cfg *config.TranscriptionConfig) (string, error) {
+func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment, cfg *config.TranscriptionConfig, onProgress FormatProgressFunc) (string, error) {
 	var content strings.Builder
+	totalSegments := len(segments)
+	nextChapterIdx := 0
 
 	if cfg.Timestamps {
-		for _, seg := range segments {
+		for i, seg := range segments {
+			if onProgress != nil && totalSegments > 0 && i%100 == 0 {
+				onProgress(float64(i) / float64(totalSegments) * 0.6)
+			}
+			// Insert chapter heading if applicable
+			if cfg.Chapters && len(meta.Chapters) > 0 {
+				segSeconds := timestampToSeconds(seg.Start)
+				for nextChapterIdx < len(meta.Chapters) &&
+					segSeconds >= meta.Chapters[nextChapterIdx].StartTime {
+					content.WriteString(fmt.Sprintf("### %s\n\n", meta.Chapters[nextChapterIdx].Title))
+					nextChapterIdx++
+				}
+			}
 			// Format: **[00:00]** Text wrapped to 80 chars
 			timestamp := fmt.Sprintf("**[%s]**", seg.Timestamp)
 			text := strings.TrimSpace(seg.Text)
@@ -68,6 +86,29 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 	} else {
 		var paragraph strings.Builder
 		for i, seg := range segments {
+			if onProgress != nil && totalSegments > 0 && i%100 == 0 {
+				onProgress(float64(i) / float64(totalSegments) * 0.6)
+			}
+			// Insert chapter heading if applicable
+			if cfg.Chapters && len(meta.Chapters) > 0 {
+				segSeconds := timestampToSeconds(seg.Start)
+				for nextChapterIdx < len(meta.Chapters) &&
+					segSeconds >= meta.Chapters[nextChapterIdx].StartTime {
+					// Flush current paragraph before chapter heading
+					if paragraph.Len() > 0 {
+						text := strings.TrimSpace(paragraph.String())
+						if text != "" {
+							wrapped := wrapText(text, maxLineLength)
+							content.WriteString(wrapped)
+							content.WriteString("\n\n")
+						}
+						paragraph.Reset()
+					}
+					content.WriteString(fmt.Sprintf("### %s\n\n", meta.Chapters[nextChapterIdx].Title))
+					nextChapterIdx++
+				}
+			}
+
 			paragraph.WriteString(seg.Text)
 			paragraph.WriteString(" ")
 
@@ -130,11 +171,15 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 		Content:         strings.TrimSpace(content.String()),
 	}
 
-	filename := slugify(meta.Title) + ".md"
+	filename := Slugify(meta.Title) + ".md"
 	outputPath := filepath.Join(cfg.OutputDir, filename)
 
 	if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
 		return "", fmt.Errorf("create output dir: %w", err)
+	}
+
+	if onProgress != nil {
+		onProgress(0.7)
 	}
 
 	tmpl, err := template.New("markdown").Parse(markdownTemplate)
@@ -147,10 +192,18 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 		return "", fmt.Errorf("execute template: %w", err)
 	}
 
+	if onProgress != nil {
+		onProgress(0.8)
+	}
+
 	output := FixCommonIssues(buf.String())
 
 	if err := os.WriteFile(outputPath, []byte(output), 0644); err != nil {
 		return "", fmt.Errorf("write file: %w", err)
+	}
+
+	if onProgress != nil {
+		onProgress(1.0)
 	}
 
 	return outputPath, nil
@@ -164,7 +217,8 @@ func sanitizeTitle(title string) string {
 	return strings.TrimSpace(title)
 }
 
-func slugify(s string) string {
+// Slugify converts a string into a URL-safe slug for filenames.
+func Slugify(s string) string {
 	s = strings.ToLower(s)
 	reg := regexp.MustCompile(`[^a-z0-9]+`)
 	s = reg.ReplaceAllString(s, "-")
@@ -182,7 +236,7 @@ func slugify(s string) string {
 // FixCommonIssues applies automatic fixes for common lint violations.
 func FixCommonIssues(content string) string {
 	lines := strings.Split(content, "\n")
-	var fixedLines []string
+	fixedLines := make([]string, 0, len(lines))
 
 	inFrontmatter := false
 	for _, line := range lines {
@@ -207,14 +261,30 @@ func FixCommonIssues(content string) string {
 	}
 
 	content = strings.Join(fixedLines, "\n")
-
-	for strings.Contains(content, "\n\n\n") {
-		content = strings.ReplaceAll(content, "\n\n\n", "\n\n")
-	}
-
+	content = collapseNewlines(content)
 	content = strings.TrimRight(content, "\n") + "\n"
 
 	return content
+}
+
+// collapseNewlines replaces runs of 3+ consecutive newlines with exactly 2,
+// in a single pass (avoids the O(n^2) loop of repeated ReplaceAll).
+func collapseNewlines(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	consecutive := 0
+	for _, r := range s {
+		if r == '\n' {
+			consecutive++
+			if consecutive <= 2 {
+				b.WriteRune(r)
+			}
+		} else {
+			consecutive = 0
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // forceWrapLine wraps a single line that exceeds maxLen.
@@ -402,4 +472,24 @@ func wrapBlockquote(text string, maxLen int) string {
 // isWordBoundary checks if a rune is a word boundary character.
 func isWordBoundary(r rune) bool {
 	return unicode.IsSpace(r) || unicode.IsPunct(r)
+}
+
+// timestampToSeconds converts a timestamp like "HH:MM:SS.mmm" or "MM:SS.mmm" to seconds.
+func timestampToSeconds(ts string) float64 {
+	ts = strings.ReplaceAll(ts, ",", ".")
+	parts := strings.Split(ts, ":")
+	switch len(parts) {
+	case 3:
+		h, _ := strconv.ParseFloat(parts[0], 64)
+		m, _ := strconv.ParseFloat(parts[1], 64)
+		s, _ := strconv.ParseFloat(parts[2], 64)
+		return h*3600 + m*60 + s
+	case 2:
+		m, _ := strconv.ParseFloat(parts[0], 64)
+		s, _ := strconv.ParseFloat(parts[1], 64)
+		return m*60 + s
+	default:
+		s, _ := strconv.ParseFloat(ts, 64)
+		return s
+	}
 }
