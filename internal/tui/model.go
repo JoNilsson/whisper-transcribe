@@ -77,6 +77,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ScreenMsg:
 		m.screen = Screen(msg)
 
+	case ModelExistsMsg:
+		if m.pendingConfig != nil {
+			cmds = append(cmds, RunPipeline(m.pendingConfig, m.program))
+		}
+
 	case ModelMissingMsg:
 		m.screen = ModelDownloadScreen
 		m.download.SetModel(msg.Model)
@@ -214,11 +219,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.preview.OpenEdit() {
 			cmds = append(cmds, OpenInEditor(m.preview.GetOutputPath()))
 		}
-	}
-
-	// If model check passed (nil message), run pipeline
-	if msg == nil && m.pendingConfig != nil && m.screen == InputScreen {
-		cmds = append(cmds, RunPipeline(m.pendingConfig, m.program))
 	}
 
 	return m, tea.Batch(cmds...)

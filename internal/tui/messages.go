@@ -87,6 +87,9 @@ type ModelDownloadErrorMsg struct {
 	Err   error
 }
 
+// ModelExistsMsg signals that the model was found locally.
+type ModelExistsMsg struct{}
+
 // UserConfirmDownloadMsg is sent when user confirms download.
 type UserConfirmDownloadMsg struct {
 	Confirmed bool

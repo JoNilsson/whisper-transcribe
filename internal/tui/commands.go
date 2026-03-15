@@ -86,7 +86,7 @@ func CheckModel(model string) tea.Cmd {
 			}
 			return PipelineErrorMsg{Step: "model_check", Err: err}
 		}
-		return nil
+		return ModelExistsMsg{}
 	}
 }
 
