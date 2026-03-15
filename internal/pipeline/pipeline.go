@@ -2,6 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -64,6 +67,8 @@ type Stats struct {
 	Duration  string
 	WordCount int
 	Model     string
+	AudioPath string
+	RawPath   string
 }
 
 // Pipeline orchestrates the transcription workflow.
@@ -150,14 +155,53 @@ func (p *Pipeline) Run() {
 	}
 	p.events <- ProgressEvent{Step: "transcribe", Progress: 1.0, Message: "Done"}
 
+	// Write raw transcript file
+	slug := formatter.Slugify(meta.Title)
+	if err := os.MkdirAll(p.config.OutputDir, 0755); err != nil {
+		p.events <- ErrorEvent{Step: "format", Err: fmt.Errorf("create output dir: %w", err)}
+		return
+	}
+
+	var rawContent strings.Builder
+	for _, seg := range segments {
+		if p.config.Timestamps {
+			rawContent.WriteString(fmt.Sprintf("[%s] %s\n", seg.Timestamp, seg.Text))
+		} else {
+			rawContent.WriteString(seg.Text)
+			rawContent.WriteString("\n")
+		}
+	}
+	rawPath := filepath.Join(p.config.OutputDir, slug+".txt")
+	if err := os.WriteFile(rawPath, []byte(rawContent.String()), 0644); err != nil {
+		rawPath = "" // non-fatal
+	}
+
 	// Step 4: Format markdown
 	p.events <- ProgressEvent{Step: "format", Progress: 0, Message: "Generating markdown..."}
-	outputPath, err := formatter.GenerateMarkdown(meta, segments, p.config)
+	outputPath, err := formatter.GenerateMarkdown(meta, segments, p.config, func(progress float64) {
+		p.events <- ProgressEvent{
+			Step:     "format",
+			Progress: progress,
+			Message:  "Formatting...",
+		}
+	})
 	if err != nil {
 		p.events <- ErrorEvent{Step: "format", Err: err}
 		return
 	}
 	p.events <- ProgressEvent{Step: "format", Progress: 1.0, Message: "Done"}
+
+	// Copy audio to output directory
+	var savedAudioPath string
+	if !p.config.IsLocalFile() && audioPath != "" {
+		ext := filepath.Ext(audioPath)
+		destPath := filepath.Join(p.config.OutputDir, slug+ext)
+		if err := copyFile(audioPath, destPath); err == nil {
+			savedAudioPath = destPath
+		}
+	} else if p.config.IsLocalFile() {
+		savedAudioPath = audioPath
+	}
 
 	// Step 5: Validate
 	p.events <- ProgressEvent{Step: "validate", Progress: 0, Message: "Checking markdown..."}
@@ -175,6 +219,8 @@ func (p *Pipeline) Run() {
 			Duration:  meta.Duration,
 			WordCount: transcriber.CountWords(segments),
 			Model:     p.config.Model,
+			AudioPath: savedAudioPath,
+			RawPath:   rawPath,
 		},
 	}
 }
@@ -182,6 +228,22 @@ func (p *Pipeline) Run() {
 // Cancel stops the pipeline.
 func (p *Pipeline) Cancel() {
 	p.cancel()
+}
+
+// copyFile copies a file from src to dst.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // createLocalMetadata generates metadata from a local file path.
