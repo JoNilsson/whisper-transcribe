@@ -37,17 +37,27 @@ type PreviewModel struct {
 func NewPreviewModel(theme *styles.Theme) *PreviewModel {
 	vp := viewport.New(80, 20)
 
-	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(80),
-	)
-
 	return &PreviewModel{
 		theme:    theme,
 		viewport: vp,
-		renderer: renderer,
 		buttons:  []string{"New Transcription", "Open in Editor", "Quit"},
 	}
+}
+
+// ensureRenderer lazily creates the glamour renderer on first use,
+// avoiding an expensive terminal capability query at startup.
+func (m *PreviewModel) ensureRenderer() {
+	if m.renderer != nil {
+		return
+	}
+	wrapWidth := 80
+	if m.width > 0 {
+		wrapWidth = max(40, m.width-12)
+	}
+	m.renderer, _ = glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(wrapWidth),
+	)
 }
 
 // Init initializes the preview model.
@@ -67,6 +77,11 @@ func (m *PreviewModel) SetResult(outputPath string, stats pipeline.Stats) {
 		m.markdown = string(content)
 	}
 
+	m.renderContent()
+}
+
+func (m *PreviewModel) renderContent() {
+	m.ensureRenderer()
 	rendered, err := m.renderer.Render(m.markdown)
 	if err != nil {
 		rendered = m.markdown
@@ -192,10 +207,13 @@ func (m *PreviewModel) SetSize(w, h int) {
 	m.viewport.Width = max(40, w-8)
 	m.viewport.Height = max(5, h-20)
 
-	m.renderer, _ = glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(max(40, w-12)),
-	)
+	// Invalidate renderer so it picks up the new width on next use
+	m.renderer = nil
+
+	// Re-render existing content if present
+	if m.markdown != "" {
+		m.renderContent()
+	}
 }
 
 // Reset resets the preview screen.
