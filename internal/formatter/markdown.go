@@ -17,8 +17,8 @@ import (
 	"github.com/cyber/whisper-transcribe/internal/transcriber"
 )
 
-// FormatProgressFunc reports formatting progress (0.0 to 1.0).
-type FormatProgressFunc func(progress float64)
+// FormatProgressFunc reports formatting progress (0.0 to 1.0) with a message.
+type FormatProgressFunc func(progress float64, message string)
 
 const maxLineLength = 80
 
@@ -63,8 +63,8 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 
 	if cfg.Timestamps {
 		for i, seg := range segments {
-			if onProgress != nil && totalSegments > 0 && i%100 == 0 {
-				onProgress(float64(i) / float64(totalSegments) * 0.6)
+			if onProgress != nil && totalSegments > 0 && i%50 == 0 {
+				onProgress(float64(i)/float64(totalSegments)*0.6, "Building paragraphs...")
 			}
 			// Insert chapter heading if applicable
 			if cfg.Chapters && len(meta.Chapters) > 0 {
@@ -86,8 +86,8 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 	} else {
 		var paragraph strings.Builder
 		for i, seg := range segments {
-			if onProgress != nil && totalSegments > 0 && i%100 == 0 {
-				onProgress(float64(i) / float64(totalSegments) * 0.6)
+			if onProgress != nil && totalSegments > 0 && i%50 == 0 {
+				onProgress(float64(i)/float64(totalSegments)*0.6, "Building paragraphs...")
 			}
 			// Insert chapter heading if applicable
 			if cfg.Chapters && len(meta.Chapters) > 0 {
@@ -179,7 +179,7 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 	}
 
 	if onProgress != nil {
-		onProgress(0.7)
+		onProgress(0.7, "Rendering template...")
 	}
 
 	tmpl, err := template.New("markdown").Parse(markdownTemplate)
@@ -193,17 +193,21 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 	}
 
 	if onProgress != nil {
-		onProgress(0.8)
+		onProgress(0.8, "Fixing line wrapping...")
 	}
 
-	output := FixCommonIssues(buf.String())
+	output := FixCommonIssues(buf.String(), onProgress)
+
+	if onProgress != nil {
+		onProgress(0.95, "Writing file...")
+	}
 
 	if err := os.WriteFile(outputPath, []byte(output), 0644); err != nil {
 		return "", fmt.Errorf("write file: %w", err)
 	}
 
 	if onProgress != nil {
-		onProgress(1.0)
+		onProgress(1.0, "Done")
 	}
 
 	return outputPath, nil
@@ -234,12 +238,17 @@ func Slugify(s string) string {
 }
 
 // FixCommonIssues applies automatic fixes for common lint violations.
-func FixCommonIssues(content string) string {
+func FixCommonIssues(content string, onProgress FormatProgressFunc) string {
 	lines := strings.Split(content, "\n")
 	fixedLines := make([]string, 0, len(lines))
+	totalLines := len(lines)
 
 	inFrontmatter := false
-	for _, line := range lines {
+	for i, line := range lines {
+		if onProgress != nil && totalLines > 0 && i%500 == 0 {
+			// Map to 0.8-0.95 range
+			onProgress(0.8+0.15*float64(i)/float64(totalLines), "Fixing line wrapping...")
+		}
 		line = strings.TrimRight(line, " \t")
 
 		// Track frontmatter (don't wrap YAML)

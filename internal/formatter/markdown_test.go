@@ -2,7 +2,7 @@ package formatter
 
 import (
 	"os"
-	"path/filepath"
+	"os/exec"
 	"testing"
 
 	"github.com/cyber/whisper-transcribe/internal/config"
@@ -256,5 +256,5 @@ func hasBlockquotePrefix(line string) bool {
 }
 
 func lookupMarkdownlint() (string, error) {
-	return filepath.Abs("markdownlint")
+	return exec.LookPath("markdownlint")
 }
