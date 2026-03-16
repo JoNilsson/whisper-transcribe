@@ -95,3 +95,4 @@ logs/
 *.pyo
 *.pyc
 __pycache__/
+vendor/
