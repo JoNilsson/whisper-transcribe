@@ -10,6 +10,39 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        pkgsCuda = import nixpkgs {
+          inherit system;
+          config = {
+            allowUnfree = true;
+            cudaSupport = true;
+          };
+        };
+
+        whisperCuda = pkgsCuda.whisper-cpp.override { cudaSupport = true; };
+
+        mkPackage = { whisper }: pkgs.buildGoModule {
+          pname = "whisper-transcribe";
+          version = "0.1.0";
+          src = ./.;
+          vendorHash = null;
+
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+
+          postInstall = ''
+            wrapProgram $out/bin/whisper-transcribe \
+              --prefix PATH : ${pkgs.lib.makeBinPath [
+                pkgs.yt-dlp
+                pkgs.ffmpeg
+                whisper
+              ]}
+          '';
+
+          meta = with pkgs.lib; {
+            description = "TUI for transcribing YouTube videos using Whisper";
+            license = licenses.mit;
+            mainProgram = "whisper-transcribe";
+          };
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -38,32 +71,15 @@
             echo "  ffmpeg    - $(ffmpeg -version 2>&1 | head -1 | cut -d' ' -f3)"
             echo "  whisper   - openai-whisper-cpp"
             echo ""
+            echo "Install options:"
+            echo "  nix profile install .#default  - CPU-only (works everywhere)"
+            echo "  nix profile install .#cuda     - NVIDIA GPU acceleration"
+            echo ""
             echo "Run 'make' to see available commands"
           '';
         };
 
-        packages.default = pkgs.buildGoModule {
-          pname = "whisper-transcribe";
-          version = "0.1.0";
-          src = ./.;
-          vendorHash = null;
-
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-
-          postInstall = ''
-            wrapProgram $out/bin/whisper-transcribe \
-              --prefix PATH : ${pkgs.lib.makeBinPath [
-                pkgs.yt-dlp
-                pkgs.ffmpeg
-                pkgs.whisper-cpp
-              ]}
-          '';
-
-          meta = with pkgs.lib; {
-            description = "TUI for transcribing YouTube videos using Whisper";
-            license = licenses.mit;
-            mainProgram = "whisper-transcribe";
-          };
-        };
+        packages.default = mkPackage { whisper = pkgs.whisper-cpp; };
+        packages.cuda = mkPackage { whisper = whisperCuda; };
       });
 }
