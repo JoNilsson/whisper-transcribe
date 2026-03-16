@@ -136,6 +136,31 @@ func (p *Pipeline) Run() {
 		p.events <- ProgressEvent{Step: "download", Progress: 1.0, Message: "Done"}
 	}
 
+	// Copy audio to output directory (early, so it's saved even if user bails)
+	slug := formatter.Slugify(meta.Title)
+	if err := os.MkdirAll(p.config.OutputDir, 0755); err != nil {
+		p.events <- ErrorEvent{Step: "format", Err: fmt.Errorf("create output dir: %w", err)}
+		return
+	}
+
+	var savedAudioPath string
+	if !p.config.IsLocalFile() && audioPath != "" {
+		ext := filepath.Ext(audioPath)
+		destPath := filepath.Join(p.config.OutputDir, slug+ext)
+		if err := copyFile(audioPath, destPath); err == nil {
+			savedAudioPath = destPath
+		}
+	} else if p.config.IsLocalFile() {
+		savedAudioPath = audioPath
+	}
+
+	// Open raw transcript file for incremental writes
+	rawPath := filepath.Join(p.config.OutputDir, slug+".txt")
+	rawFile, err := os.Create(rawPath)
+	if err != nil {
+		rawPath = "" // non-fatal
+	}
+
 	// Step 3: Transcribe
 	p.events <- ProgressEvent{Step: "transcribe", Progress: 0, Message: "Starting transcription..."}
 	segments, err := transcriber.Transcribe(p.ctx, audioPath, p.config.Model, func(chunk transcriber.Chunk) {
@@ -148,41 +173,31 @@ func (p *Pipeline) Run() {
 			Progress: chunk.Progress,
 			Message:  "Transcribing...",
 		}
+		// Append chunk to raw transcript file immediately
+		if rawFile != nil {
+			if p.config.Timestamps {
+				fmt.Fprintf(rawFile, "[%s] %s\n", chunk.Timestamp, chunk.Text)
+			} else {
+				fmt.Fprintf(rawFile, "%s\n", chunk.Text)
+			}
+		}
 	})
+	if rawFile != nil {
+		rawFile.Close()
+	}
 	if err != nil {
 		p.events <- ErrorEvent{Step: "transcribe", Err: err}
 		return
 	}
 	p.events <- ProgressEvent{Step: "transcribe", Progress: 1.0, Message: "Done"}
 
-	// Write raw transcript file
-	slug := formatter.Slugify(meta.Title)
-	if err := os.MkdirAll(p.config.OutputDir, 0755); err != nil {
-		p.events <- ErrorEvent{Step: "format", Err: fmt.Errorf("create output dir: %w", err)}
-		return
-	}
-
-	var rawContent strings.Builder
-	for _, seg := range segments {
-		if p.config.Timestamps {
-			rawContent.WriteString(fmt.Sprintf("[%s] %s\n", seg.Timestamp, seg.Text))
-		} else {
-			rawContent.WriteString(seg.Text)
-			rawContent.WriteString("\n")
-		}
-	}
-	rawPath := filepath.Join(p.config.OutputDir, slug+".txt")
-	if err := os.WriteFile(rawPath, []byte(rawContent.String()), 0644); err != nil {
-		rawPath = "" // non-fatal
-	}
-
 	// Step 4: Format markdown
 	p.events <- ProgressEvent{Step: "format", Progress: 0, Message: "Generating markdown..."}
-	outputPath, err := formatter.GenerateMarkdown(meta, segments, p.config, func(progress float64) {
+	outputPath, err := formatter.GenerateMarkdown(meta, segments, p.config, func(progress float64, message string) {
 		p.events <- ProgressEvent{
 			Step:     "format",
 			Progress: progress,
-			Message:  "Formatting...",
+			Message:  message,
 		}
 	})
 	if err != nil {
@@ -190,18 +205,6 @@ func (p *Pipeline) Run() {
 		return
 	}
 	p.events <- ProgressEvent{Step: "format", Progress: 1.0, Message: "Done"}
-
-	// Copy audio to output directory
-	var savedAudioPath string
-	if !p.config.IsLocalFile() && audioPath != "" {
-		ext := filepath.Ext(audioPath)
-		destPath := filepath.Join(p.config.OutputDir, slug+ext)
-		if err := copyFile(audioPath, destPath); err == nil {
-			savedAudioPath = destPath
-		}
-	} else if p.config.IsLocalFile() {
-		savedAudioPath = audioPath
-	}
 
 	// Step 5: Validate
 	p.events <- ProgressEvent{Step: "validate", Progress: 0, Message: "Checking markdown..."}
