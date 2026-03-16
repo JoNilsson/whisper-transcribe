@@ -106,8 +106,11 @@ func (m *ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case TranscriptMsg:
+		if msg.Timestamp != "" {
+			m.transcript.WriteString(m.theme.Dim.Render(msg.Timestamp) + " ")
+		}
 		m.transcript.WriteString(msg.Text)
-		m.transcript.WriteString(" ")
+		m.transcript.WriteString("\n")
 		m.viewport.SetContent(m.transcript.String())
 		m.viewport.GotoBottom()
 
