@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/cyber/whisper-transcribe/internal/models"
 )
@@ -67,6 +70,7 @@ func Transcribe(ctx context.Context, audioPath string, model string, onChunk Chu
 	}
 
 	var segments []Segment
+	var progressBits atomic.Uint64 // stores float64 bits of whisper's real progress
 	progressRe := regexp.MustCompile(`progress\s*=\s*(\d+)`)
 	timestampRe := regexp.MustCompile(`\[(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})\]\s*(.*)`)
 
@@ -75,17 +79,21 @@ func Transcribe(ctx context.Context, audioPath string, model string, onChunk Chu
 		for scanner.Scan() {
 			line := scanner.Text()
 			if matches := progressRe.FindStringSubmatch(line); len(matches) > 1 {
-				// Progress updates from stderr
+				if pct, err := strconv.Atoi(matches[1]); err == nil {
+					prog := float64(pct) / 100.0
+					if prog > 0.99 {
+						prog = 0.99 // never reach 1.0; only pipeline sends the "done" event
+					}
+					progressBits.Store(math.Float64bits(prog))
+				}
 			}
 		}
 	}()
 
 	scanner := bufio.NewScanner(stdout)
-	lineCount := 0
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		lineCount++
 
 		if matches := timestampRe.FindStringSubmatch(line); len(matches) == 4 {
 			seg := Segment{
@@ -102,7 +110,7 @@ func Transcribe(ctx context.Context, audioPath string, model string, onChunk Chu
 					onChunk(Chunk{
 						Text:      seg.Text,
 						Timestamp: seg.Timestamp,
-						Progress:  float64(lineCount) / 100.0,
+						Progress:  math.Float64frombits(progressBits.Load()),
 					})
 				}
 			}
