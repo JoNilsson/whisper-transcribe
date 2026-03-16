@@ -12,10 +12,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
         pkgsCuda = import nixpkgs {
           inherit system;
-          config = {
-            allowUnfree = true;
-            cudaSupport = true;
-          };
+          config.allowUnfree = true;
         };
 
         whisperCuda = pkgsCuda.whisper-cpp.override { cudaSupport = true; };
