@@ -69,8 +69,8 @@
             echo "  whisper   - openai-whisper-cpp"
             echo ""
             echo "Install options:"
-            echo "  nix profile install .#default  - CPU-only (works everywhere)"
-            echo "  nix profile install .#cuda     - NVIDIA GPU acceleration"
+            echo "  nix profile add .#default  - CPU-only (works everywhere)"
+            echo "  nix profile add .#cuda     - NVIDIA GPU acceleration"
             echo ""
             echo "Run 'make' to see available commands"
           '';
