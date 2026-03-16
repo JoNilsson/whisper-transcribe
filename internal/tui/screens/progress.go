@@ -168,6 +168,9 @@ func (m *ProgressModel) View() string {
 			status = m.theme.Dim.Render("pending")
 		case StepInProgress:
 			status = m.spinner.View()
+			if step.Message != "" {
+				status += " " + m.theme.Dim.Render(step.Message)
+			}
 		case StepCompleted:
 			status = m.theme.Success.Render("done")
 		case StepError:
