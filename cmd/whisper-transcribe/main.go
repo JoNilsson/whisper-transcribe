@@ -25,6 +25,7 @@ var (
 	timestamps bool
 	chapters   bool
 	outputDir  string
+	noMarkdown bool
 )
 
 func main() {
@@ -45,6 +46,7 @@ using local OpenAI Whisper (whisper.cpp) transcription.`,
 	rootCmd.Flags().BoolVarP(&timestamps, "timestamps", "t", false, "include timestamps in output")
 	rootCmd.Flags().BoolVarP(&chapters, "chapters", "c", false, "include chapter markers in output")
 	rootCmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory")
+	rootCmd.Flags().BoolVar(&noMarkdown, "no-markdown", false, "save raw transcript only, skip markdown formatting")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -69,6 +71,9 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	if chapters {
 		cfg.Chapters = true
+	}
+	if noMarkdown {
+		cfg.NoMarkdown = true
 	}
 
 	if noTUI || url != "" || localFile != "" {
@@ -101,6 +106,7 @@ func runCLI(cfg *config.Config, videoURL, filePath string) error {
 		Timestamps: cfg.Timestamps,
 		Chapters:   cfg.Chapters,
 		OutputDir:  cfg.OutputDir,
+		NoMarkdown: cfg.NoMarkdown,
 	}
 
 	if videoURL != "" {

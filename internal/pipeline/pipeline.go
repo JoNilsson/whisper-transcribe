@@ -191,28 +191,35 @@ func (p *Pipeline) Run() {
 	}
 	p.events <- ProgressEvent{Step: "transcribe", Progress: 1.0, Message: "Done"}
 
-	// Step 4: Format markdown
-	p.events <- ProgressEvent{Step: "format", Progress: 0, Message: "Generating markdown..."}
-	outputPath, err := formatter.GenerateMarkdown(meta, segments, p.config, func(progress float64, message string) {
-		p.events <- ProgressEvent{
-			Step:     "format",
-			Progress: progress,
-			Message:  message,
-		}
-	})
-	if err != nil {
-		p.events <- ErrorEvent{Step: "format", Err: err}
-		return
-	}
-	p.events <- ProgressEvent{Step: "format", Progress: 1.0, Message: "Done"}
-
-	// Step 5: Validate
-	p.events <- ProgressEvent{Step: "validate", Progress: 0, Message: "Checking markdown..."}
-	if err := formatter.LintMarkdown(outputPath); err != nil {
-		// Log warning but don't fail
-		p.events <- ProgressEvent{Step: "validate", Progress: 1.0, Message: "Warnings found"}
+	var outputPath string
+	if p.config.NoMarkdown {
+		// Skip markdown formatting — deliver the raw transcript only
+		p.events <- ProgressEvent{Step: "format", Progress: 1.0, Message: "Skipped (no markdown)"}
+		p.events <- ProgressEvent{Step: "validate", Progress: 1.0, Message: "Skipped"}
+		outputPath = rawPath
 	} else {
-		p.events <- ProgressEvent{Step: "validate", Progress: 1.0, Message: "Passed"}
+		// Step 4: Format markdown
+		p.events <- ProgressEvent{Step: "format", Progress: 0, Message: "Generating markdown..."}
+		outputPath, err = formatter.GenerateMarkdown(meta, segments, p.config, func(progress float64, message string) {
+			p.events <- ProgressEvent{
+				Step:     "format",
+				Progress: progress,
+				Message:  message,
+			}
+		})
+		if err != nil {
+			p.events <- ErrorEvent{Step: "format", Err: err}
+			return
+		}
+		p.events <- ProgressEvent{Step: "format", Progress: 1.0, Message: "Done"}
+
+		// Step 5: Validate
+		p.events <- ProgressEvent{Step: "validate", Progress: 0, Message: "Checking markdown..."}
+		if err := formatter.LintMarkdown(outputPath); err != nil {
+			p.events <- ProgressEvent{Step: "validate", Progress: 1.0, Message: "Warnings found"}
+		} else {
+			p.events <- ProgressEvent{Step: "validate", Progress: 1.0, Message: "Passed"}
+		}
 	}
 
 	// Complete
