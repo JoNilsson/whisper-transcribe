@@ -3,6 +3,7 @@ package formatter
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/cyber/whisper-transcribe/internal/config"
@@ -51,37 +52,40 @@ func TestWrapText(t *testing.T) {
 }
 
 func TestWrapBlockquote(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		maxLen int
-	}{
-		{
-			name:   "short blockquote",
-			input:  "Short quote",
-			maxLen: 80,
-		},
-		{
-			name:   "long blockquote with link",
-			input:  "Transcribed from [Very Long Channel Name Here](https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxxxx) on 2024-01-15",
-			maxLen: 80,
-		},
-	}
+	t.Run("short blockquote stays on one line", func(t *testing.T) {
+		result := wrapBlockquote("Short quote", 80)
+		if result != "> Short quote" {
+			t.Errorf("got %q", result)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := wrapBlockquote(tt.input, tt.maxLen)
-			for i, line := range splitLines(result) {
-				if len(line) > tt.maxLen {
-					t.Errorf("line %d exceeds max length: got %d, want <= %d\nline: %q",
-						i, len(line), tt.maxLen, line)
-				}
-				if line != "" && !hasBlockquotePrefix(line) {
-					t.Errorf("line %d missing blockquote prefix: %q", i, line)
-				}
+	t.Run("long plain text wraps within limit", func(t *testing.T) {
+		input := "This is a very long blockquote line that definitely exceeds the eighty character limit and should be wrapped properly."
+		result := wrapBlockquote(input, 80)
+		for i, line := range splitLines(result) {
+			if len(line) > 80 {
+				t.Errorf("line %d exceeds 80 chars: %q", i, line)
 			}
-		})
-	}
+			if line != "" && !hasBlockquotePrefix(line) {
+				t.Errorf("line %d missing blockquote prefix: %q", i, line)
+			}
+		}
+	})
+
+	t.Run("markdown link is never split across lines", func(t *testing.T) {
+		// Link token itself is longer than 78 chars — must stay atomic.
+		input := "Transcribed from [Very Long Channel Name Here](https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxxxx) on 2024-01-15"
+		result := wrapBlockquote(input, 80)
+		for i, line := range splitLines(result) {
+			if line != "" && !hasBlockquotePrefix(line) {
+				t.Errorf("line %d missing blockquote prefix: %q", i, line)
+			}
+			// A line with an open bracket must also have the closing ](
+			if strings.Contains(line, "[") && !strings.Contains(line, "](") {
+				t.Errorf("line %d has a broken markdown link: %q", i, line)
+			}
+		}
+	})
 }
 
 func TestGenerateMarkdownLintCompliant(t *testing.T) {
@@ -226,6 +230,11 @@ func TestGenerateMarkdownLongContent(t *testing.T) {
 		if inFrontmatter {
 			continue
 		}
+		// Lines containing markdown links may exceed 80 chars — we never break
+		// a link mid-syntax to preserve link integrity.
+		if strings.Contains(line, "](") {
+			continue
+		}
 		if len(line) > 80 {
 			t.Errorf("Line %d exceeds 80 chars (len=%d): %q", i+1, len(line), line)
 		}
@@ -233,6 +242,124 @@ func TestGenerateMarkdownLongContent(t *testing.T) {
 
 	if err := LintMarkdown(outputPath); err != nil {
 		t.Errorf("Markdown lint failed: %v", err)
+	}
+}
+
+func TestMarkdownTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "plain words",
+			input: "hello world foo",
+			want:  []string{"hello", "world", "foo"},
+		},
+		{
+			name:  "link is single token",
+			input: "see [Bernie Sanders](https://example.com) here",
+			want:  []string{"see", "[Bernie Sanders](https://example.com)", "here"},
+		},
+		{
+			name:  "multiple links",
+			input: "[A](http://a.com) and [B](http://b.com)",
+			want:  []string{"[A](http://a.com)", "and", "[B](http://b.com)"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := markdownTokens(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("token %d: got %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestWrapBlockquotePreservesLinks(t *testing.T) {
+	// Attribution line with a markdown link — the link must never be split.
+	input := "Transcribed from [Bernie Sanders](https://www.youtube.com/channel/UCH1dpzjCEiGAt8CXkryhkZg) on 2026-03-29"
+	result := wrapBlockquote(input, 80)
+	for i, line := range splitLines(result) {
+		// Every line should start with "> "
+		if line != "" && !hasBlockquotePrefix(line) {
+			t.Errorf("line %d missing blockquote prefix: %q", i, line)
+		}
+		// No line should contain a broken link (open bracket without closing paren on the same line)
+		if strings.Contains(line, "[") && !strings.Contains(line, "](") {
+			t.Errorf("line %d contains a broken markdown link: %q", i, line)
+		}
+	}
+}
+
+func TestShouldBreakParagraph(t *testing.T) {
+	makeSeg := func(text string) transcriber.Segment { return transcriber.Segment{Text: text} }
+	makeNext := func(text string) *transcriber.Segment { s := makeSeg(text); return &s }
+
+	tests := []struct {
+		name      string
+		paraText  string
+		seg       transcriber.Segment
+		nextSeg   *transcriber.Segment
+		wantBreak bool
+	}{
+		{
+			name:      "short paragraph, no break even with punctuation",
+			paraText:  "Short text.",
+			seg:       makeSeg("Short text."),
+			nextSeg:   makeNext("Next sentence."),
+			wantBreak: false,
+		},
+		{
+			name:      "long paragraph, no punctuation, no break",
+			paraText:  strings.Repeat("word ", 50),
+			seg:       makeSeg("continuation without punctuation"),
+			nextSeg:   makeNext("More text here."),
+			wantBreak: false,
+		},
+		{
+			name:      "long paragraph, ends with period, next starts capital",
+			paraText:  strings.Repeat("word ", 50),
+			seg:       makeSeg("Ends with a period."),
+			nextSeg:   makeNext("Capital start here."),
+			wantBreak: true,
+		},
+		{
+			name:      "long paragraph, ends with period, next starts lowercase",
+			paraText:  strings.Repeat("word ", 50),
+			seg:       makeSeg("Ends with a period."),
+			nextSeg:   makeNext("lowercase continuation here."),
+			wantBreak: false,
+		},
+		{
+			name:      "hard cap at 700 chars",
+			paraText:  strings.Repeat("x", 701),
+			seg:       makeSeg("no punctuation here"),
+			nextSeg:   makeNext("next"),
+			wantBreak: true,
+		},
+		{
+			name:      "last segment breaks after sentence",
+			paraText:  strings.Repeat("word ", 50),
+			seg:       makeSeg("Final sentence here."),
+			nextSeg:   nil,
+			wantBreak: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldBreakParagraph(tt.paraText, tt.seg, tt.nextSeg)
+			if got != tt.wantBreak {
+				t.Errorf("shouldBreakParagraph() = %v, want %v", got, tt.wantBreak)
+			}
+		})
 	}
 }
 

@@ -112,10 +112,11 @@ func GenerateMarkdown(meta *downloader.Metadata, segments []transcriber.Segment,
 			paragraph.WriteString(seg.Text)
 			paragraph.WriteString(" ")
 
-			if strings.HasSuffix(seg.Text, ".") ||
-				strings.HasSuffix(seg.Text, "?") ||
-				strings.HasSuffix(seg.Text, "!") ||
-				(i+1)%5 == 0 {
+			var nextSeg *transcriber.Segment
+			if i+1 < len(segments) {
+				nextSeg = &segments[i+1]
+			}
+			if shouldBreakParagraph(paragraph.String(), seg, nextSeg) {
 				text := strings.TrimSpace(paragraph.String())
 				if text != "" {
 					wrapped := wrapText(text, maxLineLength)
@@ -312,7 +313,7 @@ func forceWrapLine(line string, maxLen int) []string {
 		return []string{line}
 	}
 
-	words := strings.Fields(text)
+	words := markdownTokens(text)
 	if len(words) == 0 {
 		return []string{line}
 	}
@@ -325,7 +326,9 @@ func forceWrapLine(line string, maxLen int) []string {
 	for i, word := range words {
 		wordLen := len(word)
 
-		// Handle words longer than maxLen by breaking them
+		// Handle tokens longer than maxLen.
+		// Markdown links must never be broken mid-link — output them as-is.
+		// Plain long words are broken at character boundaries.
 		if wordLen > maxLen {
 			if lineLen > 0 {
 				result = append(result, currentLine.String())
@@ -333,17 +336,23 @@ func forceWrapLine(line string, maxLen int) []string {
 				currentLine.WriteString(prefix)
 				lineLen = 0
 			}
-			// Break the long word
-			for len(word) > maxLen {
-				currentLine.WriteString(word[:maxLen])
-				result = append(result, currentLine.String())
-				currentLine.Reset()
-				currentLine.WriteString(prefix)
-				word = word[maxLen:]
-			}
-			if len(word) > 0 {
+			if markdownLinkRe.MatchString(word) {
+				// Atomic markdown link — never break it, even if over limit.
 				currentLine.WriteString(word)
-				lineLen = len(word)
+				lineLen = wordLen
+			} else {
+				// Plain long word — break at character boundaries.
+				for len(word) > maxLen {
+					currentLine.WriteString(word[:maxLen])
+					result = append(result, currentLine.String())
+					currentLine.Reset()
+					currentLine.WriteString(prefix)
+					word = word[maxLen:]
+				}
+				if len(word) > 0 {
+					currentLine.WriteString(word)
+					lineLen = len(word)
+				}
 			}
 			continue
 		}
@@ -442,6 +451,7 @@ func wrapTextWithPrefix(prefix, text string, maxLen int) string {
 }
 
 // wrapBlockquote wraps text as a markdown blockquote.
+// Uses markdownTokens so that [text](url) links are never split across lines.
 func wrapBlockquote(text string, maxLen int) string {
 	// Account for "> " prefix (2 chars)
 	effectiveLen := maxLen - 2
@@ -451,7 +461,7 @@ func wrapBlockquote(text string, maxLen int) string {
 	}
 
 	var result strings.Builder
-	words := strings.Fields(text)
+	words := markdownTokens(text)
 	result.WriteString("> ")
 	lineLen := 0
 
@@ -476,6 +486,55 @@ func wrapBlockquote(text string, maxLen int) string {
 	}
 
 	return result.String()
+}
+
+// shouldBreakParagraph decides whether to end the current paragraph after seg.
+// It only breaks at sentence boundaries (ends with . ? !) and only when the
+// paragraph has reached a reasonable length. A hard cap prevents run-on text.
+func shouldBreakParagraph(paraText string, seg transcriber.Segment, nextSeg *transcriber.Segment) bool {
+	text := strings.TrimSpace(seg.Text)
+	endsWithPunct := strings.HasSuffix(text, ".") ||
+		strings.HasSuffix(text, "?") ||
+		strings.HasSuffix(text, "!")
+	paraLen := len(strings.TrimSpace(paraText))
+
+	if paraLen > 700 {
+		return true // hard cap — never let a paragraph run indefinitely
+	}
+	if paraLen < 150 {
+		return false // too short to end yet
+	}
+	if !endsWithPunct {
+		return false // never break mid-sentence
+	}
+	// Only break if the next segment starts with a capital letter (new sentence/thought).
+	if nextSeg != nil {
+		nextText := strings.TrimSpace(nextSeg.Text)
+		if len(nextText) > 0 && unicode.IsUpper([]rune(nextText)[0]) {
+			return true
+		}
+		return false
+	}
+	return true // last segment
+}
+
+// markdownLinkRe matches inline Markdown links: [text](url)
+var markdownLinkRe = regexp.MustCompile(`\[[^\]]*\]\([^)]*\)`)
+
+// markdownTokens splits text into words while treating [text](url) links as
+// single atomic tokens, so wrapping never breaks inside a Markdown link.
+func markdownTokens(text string) []string {
+	var tokens []string
+	last := 0
+	for _, loc := range markdownLinkRe.FindAllStringIndex(text, -1) {
+		// words before the link
+		tokens = append(tokens, strings.Fields(text[last:loc[0]])...)
+		// the entire link as one token
+		tokens = append(tokens, text[loc[0]:loc[1]])
+		last = loc[1]
+	}
+	tokens = append(tokens, strings.Fields(text[last:])...)
+	return tokens
 }
 
 // isWordBoundary checks if a rune is a word boundary character.
