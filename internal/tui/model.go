@@ -13,10 +13,11 @@ type Model struct {
 	screen Screen
 	theme  *styles.Theme
 
-	input    *screens.InputModel
-	download *screens.DownloadModel
-	progress *screens.ProgressModel
-	preview  *screens.PreviewModel
+	input      *screens.InputModel
+	download   *screens.DownloadModel
+	progress   *screens.ProgressModel
+	preview    *screens.PreviewModel
+	filepicker *screens.FilepickerModel
 
 	width  int
 	height int
@@ -31,13 +32,14 @@ type Model struct {
 func NewModel(cfg *config.Config) *Model {
 	theme := styles.NewTheme()
 	return &Model{
-		config:   cfg,
-		screen:   InputScreen,
-		theme:    theme,
-		input:    screens.NewInputModel(theme, cfg),
-		download: screens.NewDownloadModel(theme),
-		progress: screens.NewProgressModel(theme),
-		preview:  screens.NewPreviewModel(theme),
+		config:     cfg,
+		screen:     InputScreen,
+		theme:      theme,
+		input:      screens.NewInputModel(theme, cfg),
+		download:   screens.NewDownloadModel(theme),
+		progress:   screens.NewProgressModel(theme),
+		preview:    screens.NewPreviewModel(theme),
+		filepicker: screens.NewFilepickerModel(theme, cfg.OutputDir),
 	}
 }
 
@@ -63,13 +65,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.download.SetSize(msg.Width, msg.Height)
 		m.progress.SetSize(msg.Width, msg.Height)
 		m.preview.SetSize(msg.Width, msg.Height)
+		m.filepicker.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
-			if !m.pipelineActive && m.screen != ProgressScreen && m.screen != ModelDownloadScreen {
+			if !m.pipelineActive && m.screen != ProgressScreen && m.screen != ModelDownloadScreen && m.screen != FilepickerScreen {
 				return m, tea.Quit
 			}
 		}
@@ -157,6 +160,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case EditorClosedMsg:
 		// Editor closed, no action needed
+
+	case BrowseDirMsg:
+		m.filepicker.Reset(msg.CurrentDir)
+		m.screen = FilepickerScreen
+		cmds = append(cmds, m.filepicker.Init())
+
+	case DirSelectedMsg:
+		m.input.SetOutputDir(msg.Dir)
+		m.screen = InputScreen
 	}
 
 	switch m.screen {
@@ -164,6 +176,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		model, cmd := m.input.Update(msg)
 		m.input = model.(*screens.InputModel)
 		cmds = append(cmds, cmd)
+
+		if m.input.Browsing() {
+			m.input.ClearBrowsing()
+			cmds = append(cmds, func() tea.Msg {
+				return BrowseDirMsg{CurrentDir: m.input.GetConfig().OutputDir}
+			})
+		}
 
 		if m.input.Submitted() {
 			cfg := m.input.GetConfig()
@@ -219,6 +238,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.preview.OpenEdit() {
 			cmds = append(cmds, OpenInEditor(m.preview.GetOutputPath()))
 		}
+
+	case FilepickerScreen:
+		model, cmd := m.filepicker.Update(msg)
+		m.filepicker = model.(*screens.FilepickerModel)
+		cmds = append(cmds, cmd)
+
+		if m.filepicker.Cancelled() {
+			m.filepicker.Reset(m.config.OutputDir)
+			m.screen = InputScreen
+		} else if dir := m.filepicker.SelectedDir(); dir != "" {
+			m.input.SetOutputDir(dir)
+			m.filepicker.Reset(m.config.OutputDir)
+			m.screen = InputScreen
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -235,6 +268,8 @@ func (m Model) View() string {
 		return m.progress.View()
 	case PreviewScreen:
 		return m.preview.View()
+	case FilepickerScreen:
+		return m.filepicker.View()
 	default:
 		return ""
 	}
