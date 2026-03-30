@@ -21,7 +21,7 @@
           pname = "whisper-transcribe";
           version = "0.1.0";
           src = ./.;
-          vendorHash = "sha256-hoEF5NieoLCJHt9tSFMLzq7kmXjZgVNqoqMWTuMA0nw=";
+          vendorHash = "sha256-sWODEAaAk5j7A/MrKw7lHZj0jRl3IO3Gp7Wh+lgJQNw=";
 
           nativeBuildInputs = [ pkgs.makeWrapper ];
 

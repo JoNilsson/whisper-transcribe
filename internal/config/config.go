@@ -13,6 +13,7 @@ type Config struct {
 	OutputDir    string `mapstructure:"output_dir"`
 	Timestamps   bool   `mapstructure:"timestamps"`
 	Chapters     bool   `mapstructure:"chapters"`
+	NoMarkdown   bool   `mapstructure:"no_markdown"`
 }
 
 // TranscriptionConfig holds settings for a single transcription job.
@@ -23,6 +24,7 @@ type TranscriptionConfig struct {
 	Timestamps bool
 	Chapters   bool
 	OutputDir  string
+	NoMarkdown bool
 }
 
 // IsLocalFile returns true if transcribing from a local file.

@@ -27,6 +27,7 @@ type InputModel struct {
 	urlInput   textinput.Model
 	fileInput  textinput.Model
 	submitted  bool
+	browsing   bool // true when user activates the directory browser
 	err        error
 
 	sourceType SourceType
@@ -35,6 +36,7 @@ type InputModel struct {
 	model      string
 	timestamps bool
 	chapters   bool
+	noMarkdown bool
 	outputDir  string
 
 	focusIndex int
@@ -84,14 +86,13 @@ func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "tab", "down":
-			m.focusIndex = (m.focusIndex + 1) % 6
+			m.focusIndex = (m.focusIndex + 1) % 8
 			m.updateFocus()
 		case "shift+tab", "up":
-			m.focusIndex = (m.focusIndex - 1 + 6) % 6
+			m.focusIndex = (m.focusIndex - 1 + 8) % 8
 			m.updateFocus()
 		case "left":
 			if m.focusIndex == 0 {
-				// Toggle source type
 				if m.sourceType == SourceLocalFile {
 					m.sourceType = SourceURL
 				}
@@ -103,7 +104,6 @@ func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "right":
 			if m.focusIndex == 0 {
-				// Toggle source type
 				if m.sourceType == SourceURL {
 					m.sourceType = SourceLocalFile
 				}
@@ -115,7 +115,6 @@ func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case " ":
 			if m.focusIndex == 0 {
-				// Toggle source type
 				if m.sourceType == SourceURL {
 					m.sourceType = SourceLocalFile
 				} else {
@@ -125,9 +124,13 @@ func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.timestamps = !m.timestamps
 			} else if m.focusIndex == 4 {
 				m.chapters = !m.chapters
+			} else if m.focusIndex == 5 {
+				m.noMarkdown = !m.noMarkdown
 			}
 		case "enter":
-			if m.focusIndex == 5 {
+			if m.focusIndex == 6 {
+				m.browsing = true
+			} else if m.focusIndex == 7 {
 				if m.sourceType == SourceURL {
 					m.url = m.urlInput.Value()
 					if err := downloader.ValidateURL(m.url); err != nil {
@@ -275,11 +278,42 @@ func (m *InputModel) View() string {
 	}
 	b.WriteString("\n\n")
 
-	b.WriteString(m.theme.Dim.Render(fmt.Sprintf("  Output: %s", m.outputDir)))
+	mdLabel := "Format as Markdown"
+	if m.focusIndex == 5 {
+		mdLabel = m.theme.Primary.Render("▶ " + mdLabel)
+	} else {
+		mdLabel = m.theme.Dim.Render("  " + mdLabel)
+	}
+	b.WriteString(mdLabel)
+	b.WriteString("  ")
+	if !m.noMarkdown {
+		b.WriteString(m.theme.Success.Render("☑ Yes"))
+	} else {
+		b.WriteString(m.theme.Dim.Render("☐ No"))
+	}
+	b.WriteString("\n\n")
+
+	outLabel := "Output Directory"
+	if m.focusIndex == 6 {
+		outLabel = m.theme.Primary.Render("▶ " + outLabel)
+	} else {
+		outLabel = m.theme.Dim.Render("  " + outLabel)
+	}
+	b.WriteString(outLabel)
+	b.WriteString("\n  ")
+	b.WriteString(m.theme.Dim.Render(m.outputDir))
+	b.WriteString("  ")
+	browseBtn := "[ Browse ]"
+	if m.focusIndex == 6 {
+		browseBtn = m.theme.ButtonActive.Render(browseBtn)
+	} else {
+		browseBtn = m.theme.Button.Render(browseBtn)
+	}
+	b.WriteString(browseBtn)
 	b.WriteString("\n\n")
 
 	startBtn := "[ Start Transcription ]"
-	if m.focusIndex == 5 {
+	if m.focusIndex == 7 {
 		startBtn = m.theme.ButtonActive.Render(startBtn)
 	} else {
 		startBtn = m.theme.Button.Render(startBtn)
@@ -309,6 +343,7 @@ func (m *InputModel) GetConfig() *config.TranscriptionConfig {
 		Model:      m.model,
 		Timestamps: m.timestamps,
 		Chapters:   m.chapters,
+		NoMarkdown: m.noMarkdown,
 		OutputDir:  m.outputDir,
 	}
 	if m.sourceType == SourceURL {
@@ -317,6 +352,21 @@ func (m *InputModel) GetConfig() *config.TranscriptionConfig {
 		cfg.LocalFile = m.localFile
 	}
 	return cfg
+}
+
+// Browsing returns true if the user activated the directory browser.
+func (m *InputModel) Browsing() bool {
+	return m.browsing
+}
+
+// ClearBrowsing clears the browsing flag.
+func (m *InputModel) ClearBrowsing() {
+	m.browsing = false
+}
+
+// SetOutputDir updates the output directory (called after filepicker returns).
+func (m *InputModel) SetOutputDir(dir string) {
+	m.outputDir = dir
 }
 
 // Reset resets the input screen for a new transcription.

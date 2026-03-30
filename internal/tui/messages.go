@@ -10,7 +10,18 @@ const (
 	ModelDownloadScreen
 	ProgressScreen
 	PreviewScreen
+	FilepickerScreen
 )
+
+// DirSelectedMsg is sent when the user confirms a directory in the filepicker.
+type DirSelectedMsg struct {
+	Dir string
+}
+
+// BrowseDirMsg is sent when the user activates the output directory browser.
+type BrowseDirMsg struct {
+	CurrentDir string
+}
 
 // ScreenMsg triggers a screen transition.
 type ScreenMsg Screen
