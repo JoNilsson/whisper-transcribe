@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/viper"
@@ -86,5 +87,9 @@ func getDefaultOutputDir() string {
 
 // ModelOptions returns available Whisper model options.
 func ModelOptions() []string {
-	return []string{"tiny", "base", "small", "medium", "large"}
+	options := []string{"tiny", "base", "small", "medium", "large"}
+	if _, err := exec.LookPath("flm"); err == nil {
+		options = append(options, "npu")
+	}
+	return options
 }

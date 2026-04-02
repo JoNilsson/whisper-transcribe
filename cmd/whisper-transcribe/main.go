@@ -42,7 +42,7 @@ using local OpenAI Whisper (whisper.cpp) transcription.`,
 	rootCmd.Flags().BoolVar(&noTUI, "no-tui", false, "run in CLI mode without TUI")
 	rootCmd.Flags().StringVarP(&url, "url", "u", "", "YouTube URL to transcribe")
 	rootCmd.Flags().StringVarP(&localFile, "file", "f", "", "local audio file to transcribe")
-	rootCmd.Flags().StringVarP(&model, "model", "m", "", "Whisper model (tiny, base, small, medium, large)")
+	rootCmd.Flags().StringVarP(&model, "model", "m", "", "Whisper model (tiny, base, small, medium, large, npu)")
 	rootCmd.Flags().BoolVarP(&timestamps, "timestamps", "t", false, "include timestamps in output")
 	rootCmd.Flags().BoolVarP(&chapters, "chapters", "c", false, "include chapter markers in output")
 	rootCmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory")

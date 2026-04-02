@@ -17,7 +17,7 @@
 
         whisperCuda = pkgsCuda.whisper-cpp.override { cudaSupport = true; };
 
-        mkPackage = { whisper }: pkgs.buildGoModule {
+        mkPackage = { whisper ? null }: pkgs.buildGoModule {
           pname = "whisper-transcribe";
           version = "0.1.0";
           src = ./.;
@@ -27,11 +27,10 @@
 
           postInstall = ''
             wrapProgram $out/bin/whisper-transcribe \
-              --prefix PATH : ${pkgs.lib.makeBinPath [
-                pkgs.yt-dlp
-                pkgs.ffmpeg
-                whisper
-              ]}
+              --prefix PATH : ${pkgs.lib.makeBinPath (
+                [ pkgs.yt-dlp pkgs.ffmpeg ]
+                ++ pkgs.lib.optional (whisper != null) whisper
+              )}
           '';
 
           meta = with pkgs.lib; {
@@ -71,6 +70,7 @@
             echo "Install options:"
             echo "  nix profile add .#default  - CPU-only (works everywhere)"
             echo "  nix profile add .#cuda     - NVIDIA GPU acceleration"
+            echo "  nix profile add .#npu      - AMD NPU acceleration (requires system flm)"
             echo ""
             echo "Run 'make' to see available commands"
           '';
@@ -78,5 +78,6 @@
 
         packages.default = mkPackage { whisper = pkgs.whisper-cpp; };
         packages.cuda = mkPackage { whisper = whisperCuda; };
+        packages.npu = mkPackage {}; # Uses system-provided flm for AMD NPU acceleration
       });
 }

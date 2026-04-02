@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -44,6 +45,13 @@ func AvailableModels() []ModelInfo {
 
 // GetModelInfo returns information about a specific model.
 func GetModelInfo(name string) (*ModelInfo, error) {
+	if name == "npu" {
+		return &ModelInfo{
+			Name:     "npu",
+			Filename: "whisper-v3:turbo",
+			Size:     "620 MB",
+		}, nil
+	}
 	for _, m := range AvailableModels() {
 		if m.Name == name {
 			return &m, nil
@@ -86,8 +94,12 @@ func ModelExists(name string) bool {
 	return err == nil
 }
 
-// Download downloads a model from Hugging Face.
+// Download downloads a model. For NPU models, uses flm pull; otherwise downloads from Hugging Face.
 func Download(name string, onProgress ProgressFunc) error {
+	if name == "npu" {
+		return downloadFLMModel(onProgress)
+	}
+
 	info, err := GetModelInfo(name)
 	if err != nil {
 		return err
@@ -163,6 +175,30 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 		pr.onProgress(pr.downloaded, pr.total)
 	}
 	return n, err
+}
+
+func downloadFLMModel(onProgress ProgressFunc) error {
+	flmBin, err := exec.LookPath("flm")
+	if err != nil {
+		return fmt.Errorf("flm not found in PATH")
+	}
+
+	totalSize := int64(620 * 1024 * 1024) // approximate
+	if onProgress != nil {
+		onProgress(0, totalSize)
+	}
+
+	cmd := exec.Command(flmBin, "pull", "whisper-v3:turbo")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("flm pull whisper-v3:turbo: %w", err)
+	}
+
+	if onProgress != nil {
+		onProgress(totalSize, totalSize)
+	}
+	return nil
 }
 
 // FormatBytes formats bytes as a human-readable string.

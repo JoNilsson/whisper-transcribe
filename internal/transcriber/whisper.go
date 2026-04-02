@@ -34,8 +34,12 @@ type Chunk struct {
 // ChunkFunc is called for each transcription chunk.
 type ChunkFunc func(chunk Chunk)
 
-// Transcribe runs whisper.cpp on the audio file.
+// Transcribe runs transcription on the audio file using the appropriate backend.
 func Transcribe(ctx context.Context, audioPath string, model string, onChunk ChunkFunc) ([]Segment, error) {
+	if IsNPUModel(model) {
+		return TranscribeFLM(ctx, audioPath, onChunk)
+	}
+
 	whisperBin := findWhisperBinary()
 	if whisperBin == "" {
 		return nil, fmt.Errorf("whisper binary not found in PATH (tried: whisper-cpp, whisper, main)")
@@ -228,6 +232,9 @@ func (e ErrModelNotFound) Error() string {
 
 // CheckModel verifies the model exists, returning ErrModelNotFound if not.
 func CheckModel(model string) error {
+	if IsNPUModel(model) {
+		return CheckFLMModel()
+	}
 	if !ModelExists(model) {
 		return ErrModelNotFound{Model: model}
 	}
