@@ -26,9 +26,10 @@ type InputModel struct {
 	theme      *styles.Theme
 	urlInput   textinput.Model
 	fileInput  textinput.Model
-	submitted  bool
-	browsing   bool // true when user activates the directory browser
-	err        error
+	submitted    bool
+	browsing     bool // true when user activates the directory browser
+	browsingFile bool // true when user activates the audio file browser
+	err          error
 
 	sourceType SourceType
 	url        string
@@ -128,7 +129,9 @@ func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.noMarkdown = !m.noMarkdown
 			}
 		case "enter":
-			if m.focusIndex == 6 {
+			if m.focusIndex == 1 && m.sourceType == SourceLocalFile {
+				m.browsingFile = true
+			} else if m.focusIndex == 6 {
 				m.browsing = true
 			} else if m.focusIndex == 7 {
 				if m.sourceType == SourceURL {
@@ -221,6 +224,14 @@ func (m *InputModel) View() string {
 		b.WriteString(m.urlInput.View())
 	} else {
 		b.WriteString(m.fileInput.View())
+		b.WriteString("  ")
+		browseFileBtn := "[ Browse ]"
+		if m.focusIndex == 1 {
+			browseFileBtn = m.theme.ButtonActive.Render(browseFileBtn)
+		} else {
+			browseFileBtn = m.theme.Button.Render(browseFileBtn)
+		}
+		b.WriteString(browseFileBtn)
 	}
 	b.WriteString("\n")
 
@@ -321,7 +332,11 @@ func (m *InputModel) View() string {
 	b.WriteString(lipgloss.NewStyle().MarginLeft(20).Render(startBtn))
 	b.WriteString("\n\n")
 
-	help := m.theme.Help.Render("↑/↓ navigate • ←/→ select • space toggle • enter submit • q quit")
+	helpText := "↑/↓ navigate • ←/→ select • space toggle • enter submit • q quit"
+	if m.sourceType == SourceLocalFile && m.focusIndex == 1 {
+		helpText = "↑/↓ navigate • ←/→ select • space toggle • enter browse • q quit"
+	}
+	help := m.theme.Help.Render(helpText)
 	b.WriteString(help)
 
 	return b.String()
@@ -362,6 +377,22 @@ func (m *InputModel) Browsing() bool {
 // ClearBrowsing clears the browsing flag.
 func (m *InputModel) ClearBrowsing() {
 	m.browsing = false
+}
+
+// BrowsingFile returns true if the user activated the audio file browser.
+func (m *InputModel) BrowsingFile() bool {
+	return m.browsingFile
+}
+
+// ClearBrowsingFile clears the browsingFile flag.
+func (m *InputModel) ClearBrowsingFile() {
+	m.browsingFile = false
+}
+
+// SetLocalFile updates the local file path (called after filepicker returns).
+func (m *InputModel) SetLocalFile(path string) {
+	m.localFile = path
+	m.fileInput.SetValue(path)
 }
 
 // SetOutputDir updates the output directory (called after filepicker returns).

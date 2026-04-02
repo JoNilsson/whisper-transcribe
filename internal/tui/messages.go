@@ -11,6 +11,7 @@ const (
 	ProgressScreen
 	PreviewScreen
 	FilepickerScreen
+	FilepickerFileScreen
 )
 
 // DirSelectedMsg is sent when the user confirms a directory in the filepicker.
@@ -21,6 +22,16 @@ type DirSelectedMsg struct {
 // BrowseDirMsg is sent when the user activates the output directory browser.
 type BrowseDirMsg struct {
 	CurrentDir string
+}
+
+// BrowseFileMsg is sent when the user activates the audio file browser.
+type BrowseFileMsg struct {
+	StartDir string
+}
+
+// FileSelectedMsg is sent when the user picks an audio file.
+type FileSelectedMsg struct {
+	Path string
 }
 
 // ScreenMsg triggers a screen transition.

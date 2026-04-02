@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cyber/whisper-transcribe/internal/config"
 	"github.com/cyber/whisper-transcribe/internal/tui/screens"
@@ -13,11 +15,12 @@ type Model struct {
 	screen Screen
 	theme  *styles.Theme
 
-	input      *screens.InputModel
-	download   *screens.DownloadModel
-	progress   *screens.ProgressModel
-	preview    *screens.PreviewModel
-	filepicker *screens.FilepickerModel
+	input          *screens.InputModel
+	download       *screens.DownloadModel
+	progress       *screens.ProgressModel
+	preview        *screens.PreviewModel
+	filepicker     *screens.FilepickerModel
+	audioFilepicker *screens.FilepickerModel
 
 	width  int
 	height int
@@ -31,15 +34,20 @@ type Model struct {
 // NewModel creates a new root TUI model.
 func NewModel(cfg *config.Config) *Model {
 	theme := styles.NewTheme()
+	homeDir, _ := os.UserHomeDir()
+	if homeDir == "" {
+		homeDir = "."
+	}
 	return &Model{
-		config:     cfg,
-		screen:     InputScreen,
-		theme:      theme,
-		input:      screens.NewInputModel(theme, cfg),
-		download:   screens.NewDownloadModel(theme),
-		progress:   screens.NewProgressModel(theme),
-		preview:    screens.NewPreviewModel(theme),
-		filepicker: screens.NewFilepickerModel(theme, cfg.OutputDir),
+		config:          cfg,
+		screen:          InputScreen,
+		theme:           theme,
+		input:           screens.NewInputModel(theme, cfg),
+		download:        screens.NewDownloadModel(theme),
+		progress:        screens.NewProgressModel(theme),
+		preview:         screens.NewPreviewModel(theme),
+		filepicker:      screens.NewFilepickerModel(theme, cfg.OutputDir),
+		audioFilepicker: screens.NewAudioFilepickerModel(theme, homeDir),
 	}
 }
 
@@ -66,13 +74,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress.SetSize(msg.Width, msg.Height)
 		m.preview.SetSize(msg.Width, msg.Height)
 		m.filepicker.SetSize(msg.Width, msg.Height)
+		m.audioFilepicker.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
-			if !m.pipelineActive && m.screen != ProgressScreen && m.screen != ModelDownloadScreen && m.screen != FilepickerScreen {
+			if !m.pipelineActive && m.screen != ProgressScreen && m.screen != ModelDownloadScreen && m.screen != FilepickerScreen && m.screen != FilepickerFileScreen {
 				return m, tea.Quit
 			}
 		}
@@ -169,6 +178,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DirSelectedMsg:
 		m.input.SetOutputDir(msg.Dir)
 		m.screen = InputScreen
+
+	case BrowseFileMsg:
+		m.audioFilepicker.Reset(msg.StartDir)
+		m.screen = FilepickerFileScreen
+		cmds = append(cmds, m.audioFilepicker.Init())
+
+	case FileSelectedMsg:
+		m.input.SetLocalFile(msg.Path)
+		m.screen = InputScreen
 	}
 
 	switch m.screen {
@@ -181,6 +199,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.ClearBrowsing()
 			cmds = append(cmds, func() tea.Msg {
 				return BrowseDirMsg{CurrentDir: m.input.GetConfig().OutputDir}
+			})
+		}
+
+		if m.input.BrowsingFile() {
+			m.input.ClearBrowsingFile()
+			startDir, _ := os.UserHomeDir()
+			if startDir == "" {
+				startDir = "."
+			}
+			cmds = append(cmds, func() tea.Msg {
+				return BrowseFileMsg{StartDir: startDir}
 			})
 		}
 
@@ -252,6 +281,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.filepicker.Reset(m.config.OutputDir)
 			m.screen = InputScreen
 		}
+
+	case FilepickerFileScreen:
+		model, cmd := m.audioFilepicker.Update(msg)
+		m.audioFilepicker = model.(*screens.FilepickerModel)
+		cmds = append(cmds, cmd)
+
+		if m.audioFilepicker.Cancelled() {
+			homeDir, _ := os.UserHomeDir()
+			if homeDir == "" {
+				homeDir = "."
+			}
+			m.audioFilepicker.Reset(homeDir)
+			m.screen = InputScreen
+		} else if path := m.audioFilepicker.SelectedFile(); path != "" {
+			m.input.SetLocalFile(path)
+			homeDir, _ := os.UserHomeDir()
+			if homeDir == "" {
+				homeDir = "."
+			}
+			m.audioFilepicker.Reset(homeDir)
+			m.screen = InputScreen
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -270,6 +321,8 @@ func (m Model) View() string {
 		return m.preview.View()
 	case FilepickerScreen:
 		return m.filepicker.View()
+	case FilepickerFileScreen:
+		return m.audioFilepicker.View()
 	default:
 		return ""
 	}
