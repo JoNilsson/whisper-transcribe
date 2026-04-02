@@ -9,14 +9,23 @@ import (
 	"github.com/cyber/whisper-transcribe/internal/tui/styles"
 )
 
-// FilepickerModel is a directory-browser screen built on bubbles/filepicker.
+// PickerMode determines whether the filepicker selects directories or files.
+type PickerMode int
+
+const (
+	PickDir  PickerMode = iota
+	PickFile            // select audio files
+)
+
+// FilepickerModel is a browser screen built on bubbles/filepicker.
 // Navigation uses the standard filepicker keys (arrows, enter to descend,
-// esc/backspace to ascend). Pressing space confirms the current directory.
+// esc/backspace to ascend). Pressing space confirms the selection.
 // Pressing q cancels and returns to the input screen.
 type FilepickerModel struct {
 	theme     *styles.Theme
 	fp        filepicker.Model
-	selected  string // non-empty when a directory has been confirmed
+	mode      PickerMode
+	selected  string // non-empty when confirmed
 	cancelled bool
 	width     int
 	height    int
@@ -38,6 +47,29 @@ func NewFilepickerModel(theme *styles.Theme, startDir string) *FilepickerModel {
 	return &FilepickerModel{
 		theme: theme,
 		fp:    fp,
+		mode:  PickDir,
+	}
+}
+
+// audioExtensions lists file extensions shown when picking audio files.
+var audioExtensions = []string{".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".mp4"}
+
+// NewAudioFilepickerModel creates an audio-file picker starting at startDir.
+func NewAudioFilepickerModel(theme *styles.Theme, startDir string) *FilepickerModel {
+	fp := filepicker.New()
+	fp.CurrentDirectory = startDir
+	fp.DirAllowed = false
+	fp.FileAllowed = true
+	fp.AllowedTypes = audioExtensions
+	fp.ShowHidden = false
+	fp.ShowPermissions = false
+	fp.ShowSize = true
+	fp.AutoHeight = true
+
+	return &FilepickerModel{
+		theme: theme,
+		fp:    fp,
+		mode:  PickFile,
 	}
 }
 
@@ -55,23 +87,29 @@ func (m *FilepickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancelled = true
 			return m, nil
 		case "esc":
-			// If at root or the user wants to cancel, pop back via filepicker's
-			// Back binding; but if they press esc twice quickly the model will
-			// already have set cancelled via the q path. Let the filepicker
-			// handle esc for directory traversal.
+			// Let the filepicker handle esc for directory traversal.
 		case " ":
-			// Confirm current directory.
-			m.selected = m.fp.CurrentDirectory
-			return m, nil
+			if m.mode == PickDir {
+				m.selected = m.fp.CurrentDirectory
+				return m, nil
+			}
 		}
 	}
 
 	var cmd tea.Cmd
 	m.fp, cmd = m.fp.Update(msg)
+
+	// In file mode, check if the filepicker confirmed a file selection.
+	if m.mode == PickFile {
+		if didSelect, path := m.fp.DidSelectFile(msg); didSelect {
+			m.selected = path
+		}
+	}
+
 	return m, cmd
 }
 
-// View renders the directory browser with a status bar and help text.
+// View renders the browser with a status bar and help text.
 func (m *FilepickerModel) View() string {
 	var b strings.Builder
 
@@ -79,7 +117,16 @@ func (m *FilepickerModel) View() string {
 	b.WriteString(header)
 	b.WriteString("\n\n")
 
-	label := m.theme.Primary.Render("Select Output Directory")
+	var title, help string
+	if m.mode == PickFile {
+		title = "Select Audio File"
+		help = "↑/↓ navigate • enter select/open dir • backspace go up • q cancel"
+	} else {
+		title = "Select Output Directory"
+		help = "↑/↓ navigate • enter open dir • space confirm • backspace go up • q cancel"
+	}
+
+	label := m.theme.Primary.Render(title)
 	b.WriteString(label)
 	b.WriteString("\n")
 
@@ -93,15 +140,25 @@ func (m *FilepickerModel) View() string {
 	b.WriteString(m.fp.View())
 	b.WriteString("\n")
 
-	help := m.theme.Help.Render("↑/↓ navigate • enter open dir • space confirm • backspace go up • q cancel")
-	b.WriteString(help)
+	b.WriteString(m.theme.Help.Render(help))
 
 	return b.String()
 }
 
 // SelectedDir returns the confirmed directory path, or empty string if none yet.
 func (m *FilepickerModel) SelectedDir() string {
-	return m.selected
+	if m.mode == PickDir {
+		return m.selected
+	}
+	return ""
+}
+
+// SelectedFile returns the confirmed file path, or empty string if none yet.
+func (m *FilepickerModel) SelectedFile() string {
+	if m.mode == PickFile {
+		return m.selected
+	}
+	return ""
 }
 
 // Cancelled returns true if the user pressed q to cancel.
