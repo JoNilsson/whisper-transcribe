@@ -44,7 +44,7 @@ func (c *TranscriptionConfig) GetSource() string {
 // Load reads configuration from file and environment.
 func Load(cfgFile string) (*Config, error) {
 	cfg := &Config{
-		DefaultModel: "base",
+		DefaultModel: defaultModel(),
 		OutputDir:    getDefaultOutputDir(),
 		Timestamps:   false,
 	}
@@ -75,6 +75,16 @@ func Load(cfgFile string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func defaultModel() string {
+	// Prefer NPU when flm is available and whisper-cpp is not
+	_, hasWhisper := exec.LookPath("whisper-cpp")
+	_, hasFLM := exec.LookPath("flm")
+	if hasFLM == nil && hasWhisper != nil {
+		return "npu"
+	}
+	return "base"
 }
 
 func getDefaultOutputDir() string {
