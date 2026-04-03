@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	flmHost  = "127.0.0.1"
-	flmPort  = "52625"
-	flmModel = "whisper-v3:turbo"
+	flmHost     = "127.0.0.1"
+	flmPort     = "52627" // dedicated ASR port to avoid conflicts with LLM/embedding services
+	flmModelTag = "whisper-v3:turbo" // for flm pull / flm list
+	flmAPIModel = "whisper-v3"       // for /v1/audio/transcriptions requests
 )
 
 type flmResponse struct {
@@ -68,7 +69,7 @@ func CheckFLMModel() error {
 	}
 
 	for _, m := range result.Models {
-		if m.Name == flmModel {
+		if m.Name == flmModelTag {
 			if m.Installed {
 				return nil
 			}
@@ -81,7 +82,7 @@ func CheckFLMModel() error {
 
 // TranscribeFLM performs transcription using FLM's NPU-accelerated Whisper via its OpenAI-compatible API.
 func TranscribeFLM(ctx context.Context, audioPath string, onChunk ChunkFunc) ([]Segment, error) {
-	baseURL := fmt.Sprintf("http://%s:%s", flmHost, flmPort)
+	baseURL := fmt.Sprintf("http://%s:%s", flmHost, flmASRPort())
 
 	if err := ensureFLMServer(ctx, baseURL); err != nil {
 		return nil, err
@@ -136,8 +137,16 @@ func TranscribeFLM(ctx context.Context, audioPath string, onChunk ChunkFunc) ([]
 	return segments, nil
 }
 
+func flmASRPort() string {
+	if p := os.Getenv("FLM_ASR_PORT"); p != "" {
+		return p
+	}
+	return flmPort
+}
+
 func ensureFLMServer(ctx context.Context, baseURL string) error {
-	if isPortOpen(flmHost, flmPort) {
+	port := flmASRPort()
+	if isPortOpen(flmHost, port) {
 		return nil
 	}
 
@@ -146,7 +155,7 @@ func ensureFLMServer(ctx context.Context, baseURL string) error {
 		return fmt.Errorf("flm not found in PATH")
 	}
 
-	cmd := exec.Command(flmBin, "serve", flmModel)
+	cmd := exec.Command(flmBin, "serve", "--asr", "1", "--port", port)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	// Detach from parent process group so it survives app exit
@@ -163,7 +172,7 @@ func ensureFLMServer(ctx context.Context, baseURL string) error {
 			return ctx.Err()
 		case <-time.After(500 * time.Millisecond):
 		}
-		if isPortOpen(flmHost, flmPort) {
+		if isPortOpen(flmHost, port) {
 			time.Sleep(1 * time.Second) // let it finish init
 			return nil
 		}
@@ -199,7 +208,7 @@ func callFLMTranscribe(ctx context.Context, baseURL, audioPath string) (*flmResp
 		return nil, err
 	}
 
-	writer.WriteField("model", flmModel)
+	writer.WriteField("model", flmAPIModel)
 	writer.WriteField("response_format", "verbose_json")
 	writer.Close()
 
@@ -208,6 +217,7 @@ func callFLMTranscribe(ctx context.Context, baseURL, audioPath string) (*flmResp
 		return nil, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer flm")
 
 	client := &http.Client{Timeout: 30 * time.Minute}
 	httpResp, err := client.Do(req)
